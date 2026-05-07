@@ -388,6 +388,18 @@ CRON_ENTRY="# Precision Ink Insights — nightly inventory snapshot (~45s per da
 ( crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory'; echo "$CRON_ENTRY" ) | crontab -u www-data -
 print_success "Nightly inventory snapshot cron installed (runs 03:00)."
 
+# ── Step 6b2: Log rotation ────────────────────────────────────
+LOGROTATE_SRC="$INSTALL_DIR/installer/logrotate.conf"
+LOGROTATE_DST="/etc/logrotate.d/precision-ink-insights"
+if [ -f "$LOGROTATE_SRC" ]; then
+    print_step "Installing logrotate config…"
+    # Substitute the install dir in case it's not the default
+    sed "s|/var/www/precision-ink-insights|$INSTALL_DIR|g" "$LOGROTATE_SRC" > "$LOGROTATE_DST"
+    chmod 0644 "$LOGROTATE_DST"
+    chown root:root "$LOGROTATE_DST"
+    print_success "Logrotate config installed (daily, 14-day retention, gzip)."
+fi
+
 # ── Step 6c: Initial 30-day inventory backfill (background) ───
 # Each call to GetInventoryAtDate takes ~45s, so 30 days = ~25 minutes.
 # We background it so the installer doesn't block the user.

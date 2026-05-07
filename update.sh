@@ -57,6 +57,16 @@ chmod -R 755 "$INSTALL_DIR"
 chmod -R 775 "$INSTALL_DIR"/storage 2>/dev/null || true
 [ -f "$INSTALL_DIR/config/config.php" ] && chmod 640 "$INSTALL_DIR/config/config.php"
 
+# 4b. Refresh logrotate config so policy changes propagate on every pull.
+LOGROTATE_SRC="$INSTALL_DIR/installer/logrotate.conf"
+LOGROTATE_DST="/etc/logrotate.d/precision-ink-insights"
+if [ -f "$LOGROTATE_SRC" ]; then
+    say "Refreshing logrotate config at $LOGROTATE_DST…"
+    sed "s|/var/www/precision-ink-insights|$INSTALL_DIR|g" "$LOGROTATE_SRC" > "$LOGROTATE_DST"
+    chmod 0644 "$LOGROTATE_DST"
+    chown root:root "$LOGROTATE_DST"
+fi
+
 # 5. Ensure inventory-snapshot cron is installed at the canonical schedule.
 # Always rewrite the entry so changes to the schedule propagate to existing
 # deployments on the next update.sh run.
