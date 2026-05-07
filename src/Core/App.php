@@ -33,11 +33,16 @@ class App
 
         date_default_timezone_set(self::config('app.timezone', 'America/New_York'));
 
+        // Errors ALWAYS go to PHP's error_log (= Apache vhost error log
+        // when running under mod_php). display_errors only controls
+        // whether they appear in the HTTP response, which we never want
+        // in production. Without this, error_reporting(0) silenced
+        // everything — making 500s un-debuggable from server-side logs.
+        error_reporting(E_ALL);
+        ini_set('log_errors', '1');
         if (self::config('app.debug', false)) {
-            error_reporting(E_ALL);
             ini_set('display_errors', '1');
         } else {
-            error_reporting(0);
             ini_set('display_errors', '0');
         }
 
