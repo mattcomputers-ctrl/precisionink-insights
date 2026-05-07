@@ -109,7 +109,7 @@ $invDateLabel = $inventory
     <div class="card-header">
         <div>
             <h2 class="card-title">Inventory by GL Group</h2>
-            <div class="card-subtitle">As of <?= e($invDateLabel) ?> · actual-cost basis (matches the CMS Inventory Cost Set Viewer) · 30-day average where available</div>
+            <div class="card-subtitle">As of <?= e($invDateLabel) ?> · actual-cost basis · 30-day average where available</div>
         </div>
     </div>
 
