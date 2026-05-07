@@ -51,7 +51,7 @@ $dateLabel = $shipments
                 <div class="stat-label">Inventory Total</div>
                 <div class="stat-value"><?= fmt_money($inventory['total_value'], 0) ?></div>
                 <div class="text-muted" style="font-size:0.78rem;margin-top:0.4rem;">
-                    Replacement-cost basis · <?= count($inventory['by_gl_group']) ?> GL groups
+                    Actual-cost basis · <?= count($inventory['by_gl_group']) ?> GL groups
                 </div>
             </div>
         <?php endif; ?>
@@ -64,7 +64,7 @@ $dateLabel = $shipments
     <div class="card-header">
         <div>
             <h2 class="card-title">Inventory by GL Group</h2>
-            <div class="card-subtitle">As of <?= e($dateLabel) ?> · replacement-cost basis</div>
+            <div class="card-subtitle">As of <?= e($dateLabel) ?> · actual-cost basis (matches the CMS Inventory Cost Set Viewer)</div>
         </div>
     </div>
 
@@ -73,7 +73,7 @@ $dateLabel = $shipments
             <tr>
                 <th>GL Group</th>
                 <th class="text-right">Quantity</th>
-                <th class="text-right">Replacement Value</th>
+                <th class="text-right">Actual Value</th>
                 <th class="text-right" style="width:160px;">% of Total</th>
             </tr>
         </thead>

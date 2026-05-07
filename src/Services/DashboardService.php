@@ -54,9 +54,15 @@ class DashboardService
     }
 
     /**
-     * Yesterday's inventory snapshot — total replacement value and
-     * breakdown by GLGroup. Uses the GetInventoryAtDate TVF
-     * (NULL owner = all owners aggregated).
+     * Yesterday's inventory snapshot — total actual value and breakdown by
+     * GLGroup. Uses the GetInventoryAtDate TVF (NULL owner = all owners
+     * aggregated).
+     *
+     * Uses ActualValue (book value of what was paid for the inventory on
+     * hand) so the totals reconcile to CMS's Inventory Cost Set Viewer,
+     * which is what people are used to seeing. ReplacementValue is also
+     * available on the underlying view if a future feature wants the
+     * "today's cost to replace" basis instead.
      *
      * @return array{date:string, total_value:float, total_qty:float, by_gl_group:list<array{gl_group:string, qty:float, value:float, pct_of_total:float}>}
      */
@@ -65,8 +71,8 @@ class DashboardService
         $y   = date('Y-m-d', strtotime('-1 day'));
         $sql = "
             SELECT GLGroup,
-                   COALESCE(SUM(Qty), 0)              AS qty,
-                   COALESCE(SUM(ReplacementValue), 0) AS value
+                   COALESCE(SUM(Qty), 0)         AS qty,
+                   COALESCE(SUM(ActualValue), 0) AS value
               FROM CMS.dbo.GetInventoryAtDate(?, NULL)
              WHERE Qty > 0
              GROUP BY GLGroup
