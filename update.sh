@@ -57,4 +57,31 @@ chmod -R 755 "$INSTALL_DIR"
 chmod -R 775 "$INSTALL_DIR"/storage 2>/dev/null || true
 [ -f "$INSTALL_DIR/config/config.php" ] && chmod 640 "$INSTALL_DIR/config/config.php"
 
+# 5. Ensure inventory-snapshot cron is installed (idempotent — added in v1.x)
+if [ -f "$INSTALL_DIR/cron/snapshot-inventory.php" ]; then
+    if ! crontab -u www-data -l 2>/dev/null | grep -q 'snapshot-inventory'; then
+        say "Installing nightly inventory-snapshot cron…"
+        CRON_ENTRY="# Precision Ink Insights — nightly inventory snapshot
+30 2 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
+        ( crontab -u www-data -l 2>/dev/null; echo "$CRON_ENTRY" ) | crontab -u www-data -
+    fi
+fi
+
+# 6. If inventory_snapshots is empty, hint at backfill
+if [ -f "$INSTALL_DIR/cron/snapshot-inventory.php" ] && [ -f "$INSTALL_DIR/config/config.php" ]; then
+    EMPTY=$(sudo -u www-data php -r "
+        \$c = require '$INSTALL_DIR/config/config.php';
+        try {
+            \$pdo = new PDO('mysql:host='.\$c['db']['host'].';port='.(\$c['db']['port']??3306).';dbname='.\$c['db']['name'], \$c['db']['user'], \$c['db']['password']);
+            \$r = \$pdo->query('SELECT COUNT(*) FROM inventory_snapshots')->fetchColumn();
+            echo \$r == 0 ? 'YES' : 'NO';
+        } catch (Throwable \$e) { echo 'UNKNOWN'; }
+    " 2>/dev/null)
+    if [ "$EMPTY" = "YES" ]; then
+        warn "Inventory snapshots table is empty — dashboard will show 'not yet captured' until you run:"
+        echo "    sudo -u www-data php $INSTALL_DIR/cron/snapshot-inventory.php --backfill-days=30"
+        echo "  This takes ~25 minutes. Run it now in the background with nohup if you want."
+    fi
+fi
+
 say "Done. Updated to $(echo $NEW | cut -c1-7)."

@@ -379,6 +379,24 @@ systemctl enable apache2 >/dev/null
 systemctl restart apache2
 print_success "Apache configured and restarted."
 
+# ── Step 6b: Cron — nightly inventory snapshot ────────────────
+print_header "Step 6b: Setting up cron"
+
+CRON_ENTRY="# Precision Ink Insights — nightly inventory snapshot (~45s per day)
+30 2 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
+
+( crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory'; echo "$CRON_ENTRY" ) | crontab -u www-data -
+print_success "Nightly inventory snapshot cron installed (runs 02:30)."
+
+# ── Step 6c: Initial 30-day inventory backfill (background) ───
+# Each call to GetInventoryAtDate takes ~45s, so 30 days = ~25 minutes.
+# We background it so the installer doesn't block the user.
+print_step "Starting 30-day inventory backfill in the background…"
+nohup sudo -u www-data /usr/bin/php "$INSTALL_DIR/cron/snapshot-inventory.php" --backfill-days=30 \
+    >> "$INSTALL_DIR/storage/logs/snapshot-inventory.log" 2>&1 &
+print_info "Backfill PID: $!  ·  log: $INSTALL_DIR/storage/logs/snapshot-inventory.log"
+print_info "The dashboard will show full 30-day comparison data once backfill finishes (~25 minutes)."
+
 # Final permissions
 print_step "Final file permissions…"
 chown -R www-data:www-data "$INSTALL_DIR"

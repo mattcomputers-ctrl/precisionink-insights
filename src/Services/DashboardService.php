@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PII\Services;
 
 use PII\Core\CMSDatabase;
+use PII\Core\Database;
 
 /**
  * DashboardService — read-only metrics shown on the landing dashboard.
@@ -54,57 +55,121 @@ class DashboardService
     }
 
     /**
-     * Yesterday's inventory snapshot — total actual value and breakdown by
-     * GLGroup. Uses the GetInventoryAtDate TVF (NULL owner = all owners
-     * aggregated).
+     * Yesterday's inventory snapshot + 30-day-average comparison, read
+     * from the local inventory_snapshots cache (populated nightly by
+     * cron/snapshot-inventory.php). The CMS GetInventoryAtDate TVF takes
+     * ~45 seconds per call so we never query it on a page load.
      *
-     * Uses ActualValue (book value of what was paid for the inventory on
-     * hand) so the totals reconcile to CMS's Inventory Cost Set Viewer,
-     * which is what people are used to seeing. ReplacementValue is also
-     * available on the underlying view if a future feature wants the
-     * "today's cost to replace" basis instead.
+     * Values are ActualValue (book value), matching what people see in
+     * the CMS Inventory Cost Set Viewer.
      *
-     * @return array{date:string, total_value:float, total_qty:float, by_gl_group:list<array{gl_group:string, qty:float, value:float, pct_of_total:float}>}
+     * Returns null if no snapshot is available — caller can then show
+     * a "snapshot not yet captured" message instead of fake zeros.
+     *
+     * @return array{
+     *   date: string,
+     *   total_value: float,
+     *   total_qty: float,
+     *   total_avg_30d: float|null,
+     *   total_variance_pct: float|null,
+     *   by_gl_group: list<array{
+     *     gl_group: string,
+     *     qty: float,
+     *     value: float,
+     *     pct_of_total: float,
+     *     avg_30d: float|null,
+     *     variance_pct: float|null,
+     *   }>
+     * }|null
      */
-    public function yesterdayInventory(): array
+    public function yesterdayInventory(): ?array
     {
-        $y   = date('Y-m-d', strtotime('-1 day'));
-        $sql = "
-            SELECT GLGroup,
-                   COALESCE(SUM(Qty), 0)         AS qty,
-                   COALESCE(SUM(ActualValue), 0) AS value
-              FROM CMS.dbo.GetInventoryAtDate(?, NULL)
-             WHERE Qty > 0
-             GROUP BY GLGroup
-        ";
-        $rows = CMSDatabase::getInstance()->fetchAll($sql, [$y]);
+        $db = Database::getInstance();
+        $y  = date('Y-m-d', strtotime('-1 day'));
 
-        $totalValue = 0.0;
-        $totalQty   = 0.0;
-        foreach ($rows as $r) {
-            $totalValue += (float) ($r['value'] ?? 0);
-            $totalQty   += (float) ($r['qty']   ?? 0);
+        // Latest snapshot we actually have. Usually = yesterday, but
+        // fall back to the most-recent date so weekend/holiday outages
+        // don't leave the dashboard blank.
+        $latestRow = $db->fetch(
+            "SELECT MAX(snapshot_date) AS d FROM inventory_snapshots WHERE snapshot_date <= ?",
+            [$y]
+        );
+        $latestDate = $latestRow['d'] ?? null;
+        if (!$latestDate) {
+            return null;  // Cache empty — nothing to show
         }
 
-        // Sort descending by value so the biggest GL group is at the top
-        usort($rows, fn($a, $b) => ((float) $b['value']) <=> ((float) $a['value']));
+        $latest = $db->fetchAll(
+            "SELECT gl_group, total_qty, total_actual_value
+               FROM inventory_snapshots
+              WHERE snapshot_date = ?
+              ORDER BY total_actual_value DESC",
+            [$latestDate]
+        );
+
+        // 30-day rolling average per GL group, ending the day before $latestDate
+        // so the most-recent value isn't included in its own benchmark.
+        $avgEnd   = date('Y-m-d', strtotime($latestDate . ' -1 day'));
+        $avgStart = date('Y-m-d', strtotime($latestDate . ' -30 day'));
+        $avgRows  = $db->fetchAll(
+            "SELECT gl_group, AVG(total_actual_value) AS avg_value
+               FROM inventory_snapshots
+              WHERE snapshot_date BETWEEN ? AND ?
+              GROUP BY gl_group",
+            [$avgStart, $avgEnd]
+        );
+        $avgByGroup = [];
+        foreach ($avgRows as $r) {
+            $avgByGroup[$r['gl_group']] = (float) $r['avg_value'];
+        }
+
+        // 30-day average of total (sum across GL groups per day, then average those daily totals)
+        $totalAvgRow = $db->fetch(
+            "SELECT AVG(daily_total) AS avg_total
+               FROM (
+                   SELECT snapshot_date, SUM(total_actual_value) AS daily_total
+                     FROM inventory_snapshots
+                    WHERE snapshot_date BETWEEN ? AND ?
+                    GROUP BY snapshot_date
+               ) d",
+            [$avgStart, $avgEnd]
+        );
+        $totalAvg30d = $totalAvgRow && $totalAvgRow['avg_total'] !== null
+            ? (float) $totalAvgRow['avg_total']
+            : null;
+
+        // Roll up the latest snapshot
+        $totalValue = 0.0;
+        $totalQty   = 0.0;
+        foreach ($latest as $r) {
+            $totalValue += (float) $r['total_actual_value'];
+            $totalQty   += (float) $r['total_qty'];
+        }
 
         $byGroup = [];
-        foreach ($rows as $r) {
-            $val = (float) ($r['value'] ?? 0);
+        foreach ($latest as $r) {
+            $g    = (string) $r['gl_group'];
+            $val  = (float)  $r['total_actual_value'];
+            $avg  = $avgByGroup[$g] ?? null;
             $byGroup[] = [
-                'gl_group'      => (string) ($r['GLGroup'] ?? '(unspecified)'),
-                'qty'           => (float)  ($r['qty']     ?? 0),
-                'value'         => $val,
-                'pct_of_total'  => $totalValue > 0 ? ($val / $totalValue) * 100 : 0,
+                'gl_group'     => $g,
+                'qty'          => (float) $r['total_qty'],
+                'value'        => $val,
+                'pct_of_total' => $totalValue > 0 ? ($val / $totalValue) * 100 : 0,
+                'avg_30d'      => $avg,
+                'variance_pct' => ($avg !== null && $avg != 0.0) ? (($val - $avg) / $avg) * 100 : null,
             ];
         }
 
         return [
-            'date'        => $y,
-            'total_value' => $totalValue,
-            'total_qty'   => $totalQty,
-            'by_gl_group' => $byGroup,
+            'date'               => $latestDate,
+            'total_value'        => $totalValue,
+            'total_qty'          => $totalQty,
+            'total_avg_30d'      => $totalAvg30d,
+            'total_variance_pct' => ($totalAvg30d !== null && $totalAvg30d != 0.0)
+                ? (($totalValue - $totalAvg30d) / $totalAvg30d) * 100
+                : null,
+            'by_gl_group'        => $byGroup,
         ];
     }
 }

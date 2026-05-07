@@ -6,9 +6,12 @@
  * @var string|null $cmsError    set if CMS query failed or is unconfigured
  */
 $user = $_SESSION['_user'] ?? null;
-$dateLabel = $shipments
+$shipDateLabel = $shipments
     ? fmt_date($shipments['date'], 'l, F j, Y')
     : fmt_date(date('Y-m-d', strtotime('-1 day')), 'l, F j, Y');
+$invDateLabel = $inventory
+    ? fmt_date($inventory['date'], 'l, F j, Y')
+    : null;
 ?>
 
 <?php if ($cmsError): ?>
@@ -17,12 +20,20 @@ $dateLabel = $shipments
     </div>
 <?php endif; ?>
 
+<?php if (!$cmsError && $inventory === null): ?>
+    <div class="alert alert-info">
+        <strong>Inventory snapshots not yet captured.</strong>
+        Snapshots are generated nightly by <code>cron/snapshot-inventory.php</code>; the inventory total + GL-group breakdown will appear here after the first run.
+        Admin can backfill now with <code>php cron/snapshot-inventory.php --backfill-days=30</code> (takes ~25 minutes; the CMS TVF is slow).
+    </div>
+<?php endif; ?>
+
 <?php if ($shipments !== null || $inventory !== null): ?>
 <div class="card">
     <div class="card-header">
         <div>
-            <h2 class="card-title">Yesterday — <?= e($dateLabel) ?></h2>
-            <div class="card-subtitle">Snapshot of revenue, margin, and inventory as of end of day</div>
+            <h2 class="card-title">Yesterday — <?= e($shipDateLabel) ?></h2>
+            <div class="card-subtitle">Revenue and margin from yesterday's shipments<?= $inventory && $inventory['date'] !== ($shipments['date'] ?? '') ? ' · inventory snapshot from ' . e(fmt_date($inventory['date'], 'M j')) : '' ?></div>
         </div>
     </div>
 
@@ -51,7 +62,16 @@ $dateLabel = $shipments
                 <div class="stat-label">Inventory Total</div>
                 <div class="stat-value"><?= fmt_money($inventory['total_value'], 0) ?></div>
                 <div class="text-muted" style="font-size:0.78rem;margin-top:0.4rem;">
-                    Actual-cost basis · <?= count($inventory['by_gl_group']) ?> GL groups
+                    <?php if ($inventory['total_avg_30d'] !== null): ?>
+                        30-day avg: <?= fmt_money($inventory['total_avg_30d'], 0) ?>
+                        <?php if ($inventory['total_variance_pct'] !== null): ?>
+                            <span style="margin-left:0.3rem;color:<?= $inventory['total_variance_pct'] > 0 ? 'var(--good)' : ($inventory['total_variance_pct'] < 0 ? 'var(--warn)' : 'var(--text-muted)') ?>;">
+                                (<?= fmt_signed_pct($inventory['total_variance_pct'], 1) ?> vs avg)
+                            </span>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        Actual-cost basis · 30-day avg not yet available
+                    <?php endif; ?>
                 </div>
             </div>
         <?php endif; ?>
@@ -64,7 +84,7 @@ $dateLabel = $shipments
     <div class="card-header">
         <div>
             <h2 class="card-title">Inventory by GL Group</h2>
-            <div class="card-subtitle">As of <?= e($dateLabel) ?> · actual-cost basis (matches the CMS Inventory Cost Set Viewer)</div>
+            <div class="card-subtitle">As of <?= e($invDateLabel) ?> · actual-cost basis (matches the CMS Inventory Cost Set Viewer) · 30-day average where available</div>
         </div>
     </div>
 
@@ -74,22 +94,36 @@ $dateLabel = $shipments
                 <th>GL Group</th>
                 <th class="text-right">Quantity</th>
                 <th class="text-right">Actual Value</th>
-                <th class="text-right" style="width:160px;">% of Total</th>
+                <th class="text-right" style="width:140px;">% of Total</th>
+                <th class="text-right">30-Day Avg</th>
+                <th class="text-right">Variance %</th>
             </tr>
         </thead>
         <tbody>
-        <?php foreach ($inventory['by_gl_group'] as $g): ?>
+        <?php foreach ($inventory['by_gl_group'] as $g):
+            $vp = $g['variance_pct'];
+            // Variance is informational, not judgmental: a few percent
+            // either way is normal; only flag larger swings as orange.
+            $varCls = '';
+            if ($vp !== null && abs($vp) >= 10) {
+                $varCls = $vp > 0 ? 'text-good' : 'text-warn';
+            }
+        ?>
             <tr>
                 <td><strong><?= e($g['gl_group']) ?></strong></td>
                 <td class="text-right"><?= fmt_number($g['qty'], 0) ?></td>
                 <td class="text-right"><?= fmt_money($g['value'], 0) ?></td>
                 <td class="text-right">
                     <div style="display:flex;align-items:center;gap:0.5rem;justify-content:flex-end;">
-                        <span style="display:inline-block;width:80px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+                        <span style="display:inline-block;width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
                             <span style="display:block;height:100%;width:<?= number_format(min(100, $g['pct_of_total']), 2) ?>%;background:var(--primary);"></span>
                         </span>
                         <span style="min-width:48px;text-align:right;"><?= fmt_pct($g['pct_of_total'], 1) ?></span>
                     </div>
+                </td>
+                <td class="text-right"><?= $g['avg_30d'] === null ? '<span class="text-dim">—</span>' : fmt_money($g['avg_30d'], 0) ?></td>
+                <td class="text-right <?= $varCls ?>">
+                    <?= $vp === null ? '<span class="text-dim">—</span>' : fmt_signed_pct($vp, 1) ?>
                 </td>
             </tr>
         <?php endforeach; ?>
@@ -100,6 +134,8 @@ $dateLabel = $shipments
                 <td class="text-right"><?= fmt_number($inventory['total_qty'], 0) ?></td>
                 <td class="text-right"><?= fmt_money($inventory['total_value'], 0) ?></td>
                 <td class="text-right">100.0%</td>
+                <td class="text-right"><?= $inventory['total_avg_30d'] === null ? '<span class="text-dim">—</span>' : fmt_money($inventory['total_avg_30d'], 0) ?></td>
+                <td class="text-right"><?= $inventory['total_variance_pct'] === null ? '<span class="text-dim">—</span>' : fmt_signed_pct($inventory['total_variance_pct'], 1) ?></td>
             </tr>
         </tfoot>
     </table>
