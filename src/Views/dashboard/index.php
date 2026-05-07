@@ -38,12 +38,29 @@ $invDateLabel = $inventory
     </div>
 
     <div class="stat-grid">
-        <?php if ($shipments !== null): ?>
+        <?php if ($shipments !== null):
+            // Variance display: positive = green, negative = warn (matches inventory total card).
+            $varCol = static function (?float $v): string {
+                if ($v === null) return 'var(--text-muted)';
+                if ($v > 0) return 'var(--good)';
+                if ($v < 0) return 'var(--warn)';
+                return 'var(--text-muted)';
+            };
+        ?>
             <div class="stat-card">
                 <div class="stat-label">Revenue</div>
                 <div class="stat-value"><?= fmt_money($shipments['revenue']) ?></div>
                 <div class="text-muted" style="font-size:0.78rem;margin-top:0.4rem;">
-                    <?= fmt_number($shipments['lines']) ?> shipment line<?= $shipments['lines'] === 1 ? '' : 's' ?>
+                    <?php if ($shipments['revenue_avg_30d'] !== null): ?>
+                        30-day avg: <?= fmt_money($shipments['revenue_avg_30d'], 0) ?>
+                        <?php if ($shipments['revenue_variance_pct'] !== null): ?>
+                            <span style="margin-left:0.3rem;color:<?= $varCol($shipments['revenue_variance_pct']) ?>;">
+                                (<?= fmt_signed_pct($shipments['revenue_variance_pct'], 1) ?> vs avg)
+                            </span>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <?= fmt_number($shipments['lines']) ?> shipment line<?= $shipments['lines'] === 1 ? '' : 's' ?>
+                    <?php endif; ?>
                 </div>
             </div>
             <div class="stat-card">
@@ -52,7 +69,15 @@ $invDateLabel = $inventory
                     <?= $shipments['cost_pct'] === null ? '—' : fmt_pct($shipments['cost_pct'], 1) ?>
                 </div>
                 <div class="text-muted" style="font-size:0.78rem;margin-top:0.4rem;">
-                    Cost: <?= fmt_money($shipments['cost']) ?>
+                    Cost: <?= fmt_money($shipments['cost'], 0) ?>
+                    <?php if ($shipments['cost_avg_30d'] !== null): ?>
+                        · 30-day avg: <?= fmt_money($shipments['cost_avg_30d'], 0) ?>
+                        <?php if ($shipments['cost_variance_pct'] !== null): ?>
+                            <span style="margin-left:0.2rem;color:<?= $varCol($shipments['cost_variance_pct']) ?>;">
+                                (<?= fmt_signed_pct($shipments['cost_variance_pct'], 1) ?>)
+                            </span>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </div>
             </div>
         <?php endif; ?>

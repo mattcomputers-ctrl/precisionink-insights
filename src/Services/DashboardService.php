@@ -18,18 +18,41 @@ use PII\Core\Database;
 class DashboardService
 {
     /**
-     * Yesterday's revenue, packed cost, and cost-as-%-of-sales.
+     * Yesterday's revenue + packed cost, plus the 30-day daily average
+     * (over the 30 days preceding yesterday) and the variance % of
+     * yesterday vs that average.
      *
-     * @return array{date:string, revenue:float, cost:float, cost_pct:?float, lines:int}
+     * Pulls 31 daily rows (yesterday + 30 prior days) in one CMS query,
+     * splits yesterday off, averages the rest. Days with no shipments
+     * (weekends, holidays) drop out of the average naturally — we
+     * average over the days that actually have data, not calendar days.
+     * That avoids weekend-dilution making yesterday look artificially
+     * "above average".
+     *
+     * @return array{
+     *   date: string,
+     *   revenue: float,
+     *   cost: float,
+     *   cost_pct: ?float,
+     *   lines: int,
+     *   revenue_avg_30d: ?float,
+     *   revenue_variance_pct: ?float,
+     *   cost_avg_30d: ?float,
+     *   cost_variance_pct: ?float,
+     *   avg_days_used: int
+     * }
      */
     public function yesterdayShipments(): array
     {
-        $y   = date('Y-m-d', strtotime('-1 day'));
+        $y     = date('Y-m-d', strtotime('-1 day'));
+        $start = date('Y-m-d', strtotime($y . ' -30 day'));
+
         $sql = "
             SELECT
-                COALESCE(SUM(sd.TotalAmount), 0)               AS revenue,
-                COALESCE(SUM(sd.UnitCost * sd.QtyShipped), 0)  AS cost,
-                COUNT(*)                                       AS lines
+                CAST(sd.DateShipped AS DATE)                  AS d,
+                COALESCE(SUM(sd.TotalAmount), 0)              AS revenue,
+                COALESCE(SUM(sd.UnitCost * sd.QtyShipped), 0) AS cost,
+                COUNT(*)                                      AS lines
             FROM CMS.dbo.ShipmentDetails sd
             LEFT JOIN CMS.dbo.ChangeSet cs ON cs.ChangeSet = sd.ChangeSet
             LEFT JOIN CMS.dbo.[Trans]    t ON t.[Trans]    = cs.[Trans]
@@ -39,18 +62,46 @@ class DashboardService
             WHERE sd.QtyShipped > 0
               AND t.ReversedTrans IS NULL
               AND ro.ReversedTrans IS NULL
-              AND sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?)
+              AND sd.DateShipped >= ?
+              AND sd.DateShipped < DATEADD(day, 1, ?)
+            GROUP BY CAST(sd.DateShipped AS DATE)
         ";
-        $row = CMSDatabase::getInstance()->fetch($sql, [$y, $y]) ?? [];
-        $rev   = (float) ($row['revenue'] ?? 0);
-        $cost  = (float) ($row['cost']    ?? 0);
-        $lines = (int)   ($row['lines']   ?? 0);
+        $rows = CMSDatabase::getInstance()->fetchAll($sql, [$start, $y]);
+
+        $yesterdayRev = 0.0; $yesterdayCost = 0.0; $yesterdayLines = 0;
+        $avgRevSum    = 0.0; $avgCostSum    = 0.0; $avgDays = 0;
+
+        foreach ($rows as $r) {
+            $d    = (string) $r['d'];
+            $rev  = (float)  ($r['revenue'] ?? 0);
+            $cost = (float)  ($r['cost']    ?? 0);
+            $ln   = (int)    ($r['lines']   ?? 0);
+
+            if ($d === $y) {
+                $yesterdayRev   = $rev;
+                $yesterdayCost  = $cost;
+                $yesterdayLines = $ln;
+            } else {
+                $avgRevSum  += $rev;
+                $avgCostSum += $cost;
+                $avgDays++;
+            }
+        }
+
+        $revAvg  = $avgDays > 0 ? $avgRevSum  / $avgDays : null;
+        $costAvg = $avgDays > 0 ? $avgCostSum / $avgDays : null;
+
         return [
-            'date'     => $y,
-            'revenue'  => $rev,
-            'cost'     => $cost,
-            'cost_pct' => $rev != 0.0 ? ($cost / $rev) * 100 : null,
-            'lines'    => $lines,
+            'date'                 => $y,
+            'revenue'              => $yesterdayRev,
+            'cost'                 => $yesterdayCost,
+            'cost_pct'             => $yesterdayRev != 0.0 ? ($yesterdayCost / $yesterdayRev) * 100 : null,
+            'lines'                => $yesterdayLines,
+            'revenue_avg_30d'      => $revAvg,
+            'revenue_variance_pct' => ($revAvg  !== null && $revAvg  != 0.0) ? (($yesterdayRev  - $revAvg)  / $revAvg)  * 100 : null,
+            'cost_avg_30d'         => $costAvg,
+            'cost_variance_pct'    => ($costAvg !== null && $costAvg != 0.0) ? (($yesterdayCost - $costAvg) / $costAvg) * 100 : null,
+            'avg_days_used'        => $avgDays,
         ];
     }
 
