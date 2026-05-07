@@ -21,9 +21,11 @@ use PII\Core\CMSDatabase;
  *
  * Filtering rules (per business owner):
  *   - QtyShipped > 0  → returns/credits (negative-qty shipments) are EXCLUDED
- *   - Trans.IsReversed = 0 (or NULL for un-invoiced) → voided shipments
- *     EXCLUDED. CMS marks the associated invoice's "Is Reversed" flag
- *     when a shipment is voided.
+ *   - Trans.ReversedTrans → voided shipments EXCLUDED. CMS reverses an
+ *     invoice by inserting a second Trans row with ReversedTrans pointing
+ *     to the original. Both rows of that pair must be excluded (the
+ *     original AND the reversal) — see the LEFT JOIN to a derived table
+ *     of reversed originals in each query.
  *   - Description for items comes from the alias item (Item.Description
  *     joined on ItemCode = ShipmentDetails.ItemName), NOT the inventory
  *     item description that the view exposes by default.
@@ -81,8 +83,12 @@ class ShipmentService
             FROM CMS.dbo.ShipmentDetails sd
             LEFT JOIN CMS.dbo.ChangeSet cs ON cs.ChangeSet = sd.ChangeSet
             LEFT JOIN CMS.dbo.[Trans]    t  ON t.[Trans]   = cs.[Trans]
+            LEFT JOIN (
+                SELECT DISTINCT ReversedTrans FROM CMS.dbo.[Trans] WHERE ReversedTrans IS NOT NULL
+            ) reversed_originals ON reversed_originals.ReversedTrans = t.[Trans]
             WHERE sd.QtyShipped > 0
-              AND COALESCE(t.IsReversed, 0) = 0
+              AND t.ReversedTrans IS NULL                    -- not a reversal trans
+              AND reversed_originals.ReversedTrans IS NULL   -- and not been reversed
               AND ((sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
                 OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?)))
         ";
@@ -151,8 +157,12 @@ class ShipmentService
                 LEFT JOIN CMS.dbo.Entity e        ON e.EntityCode = sd.BillTo
                 LEFT JOIN CMS.dbo.ChangeSet cs    ON cs.ChangeSet = sd.ChangeSet
                 LEFT JOIN CMS.dbo.[Trans]    t    ON t.[Trans]   = cs.[Trans]
+                LEFT JOIN (
+                    SELECT DISTINCT ReversedTrans FROM CMS.dbo.[Trans] WHERE ReversedTrans IS NOT NULL
+                ) reversed_originals ON reversed_originals.ReversedTrans = t.[Trans]
                 WHERE sd.QtyShipped > 0
-                  AND COALESCE(t.IsReversed, 0) = 0
+                  AND t.ReversedTrans IS NULL                  -- not a reversal trans
+                  AND reversed_originals.ReversedTrans IS NULL -- and not been reversed
                   AND ((sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
                     OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?)))
                 GROUP BY sd.BillTo
@@ -218,6 +228,7 @@ class ShipmentService
      *     description: string,
      *     unit: string,
      *     unit_mixed: bool,
+     *     replacement_cost: float|null,
      *     baseline_revenue: float,
      *     baseline_cost: float,
      *     baseline_qty: float,
@@ -232,15 +243,25 @@ class ShipmentService
         string $cStart, string $cEnd,
         string $viewMode = 'both'
     ): array {
-        // Joining CMS.dbo.Item ON ItemCode = sd.ItemName gives the alias's own
-        // Description (the view's own Description column is the inventory item's,
-        // which can diverge for relabeled / private-label SKUs).
+        // Item join chain:
+        //   alias = CMS.dbo.Item matched on ItemCode = sd.ItemName (the alias row).
+        //   inv   = the resolved inventory item (alias.ReplacedBy → Item.Item;
+        //           if alias has no ReplacedBy it IS the inventory item, so we
+        //           ISNULL back to alias.Item).
+        //
+        // Why both:
+        //   - alias.Description is the alias's own description (what executives see).
+        //   - inv.ReplacementCost holds the today's packed replacement cost — CMS
+        //     pre-computes (bulk + packaging) and stores the result on the
+        //     packaged inventory item. Aliases always store NULL ReplacementCost,
+        //     so the value MUST come from the inventory item.
         $sql = "
             SELECT
                 sd.ItemName,
                 MAX(alias.Description) AS Description,
                 MIN(sd.OrderedUnit) AS Unit,
                 COUNT(DISTINCT sd.OrderedUnit) AS unit_count,
+                MAX(inv.ReplacementCost) AS ReplacementCost,
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.TotalAmount ELSE 0 END), 0) AS baseline_revenue,
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.UnitCost * sd.QtyShipped ELSE 0 END), 0) AS baseline_cost,
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.QtyShipped ELSE 0 END), 0) AS baseline_qty,
@@ -249,11 +270,16 @@ class ShipmentService
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.QtyShipped ELSE 0 END), 0) AS comparison_qty
             FROM CMS.dbo.ShipmentDetails sd
             LEFT JOIN CMS.dbo.Item alias       ON alias.ItemCode = sd.ItemName
+            LEFT JOIN CMS.dbo.Item inv         ON inv.Item       = ISNULL(alias.ReplacedBy, alias.Item)
             LEFT JOIN CMS.dbo.ChangeSet cs     ON cs.ChangeSet   = sd.ChangeSet
             LEFT JOIN CMS.dbo.[Trans]    t     ON t.[Trans]      = cs.[Trans]
+            LEFT JOIN (
+                SELECT DISTINCT ReversedTrans FROM CMS.dbo.[Trans] WHERE ReversedTrans IS NOT NULL
+            ) reversed_originals              ON reversed_originals.ReversedTrans = t.[Trans]
             WHERE sd.BillTo = ?
               AND sd.QtyShipped > 0
-              AND COALESCE(t.IsReversed, 0) = 0
+              AND t.ReversedTrans IS NULL                    -- not a reversal trans
+              AND reversed_originals.ReversedTrans IS NULL   -- and not been reversed
               AND ((sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
                 OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?)))
             GROUP BY sd.ItemName
@@ -287,11 +313,13 @@ class ShipmentService
                 continue;
             }
 
+            $repCost = $r['ReplacementCost'] ?? null;
             $out[] = [
                 'item_name'          => (string) $r['ItemName'],
                 'description'        => (string) ($r['Description'] ?? ''),
                 'unit'               => (string) ($r['Unit'] ?? ''),
                 'unit_mixed'         => ((int) ($r['unit_count'] ?? 1)) > 1,
+                'replacement_cost'   => $repCost === null ? null : (float) $repCost,
                 'baseline_revenue'   => $bRev,
                 'baseline_cost'      => (float) ($r['baseline_cost']    ?? 0),
                 'baseline_qty'       => $bQty,

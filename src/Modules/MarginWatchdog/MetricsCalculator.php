@@ -44,6 +44,11 @@ class MetricsCalculator
         $cCost = (float) ($row['comparison_cost']   ?? 0);
         $cQty = (float) ($row['comparison_qty']     ?? 0);
 
+        // Forward-looking: today's per-unit replacement cost (from CMS Item.ReplacementCost
+        // on the inventory item — pre-computed bulk + packaging). Null = no rep cost on file.
+        $repCost = $row['replacement_cost'] ?? null;
+        $repCost = $repCost === null ? null : (float) $repCost;
+
         // Dollars over packed cost
         $bDoc = $bRev - $bCost;
         $cDoc = $cRev - $cCost;
@@ -67,6 +72,22 @@ class MetricsCalculator
         // Determine "exists in both periods" so callers can suppress
         // % change when one side is missing.
         $inBoth = ($bRev != 0.0 || $bQty != 0.0) && ($cRev != 0.0 || $cQty != 0.0);
+
+        // Forward-looking margin pressure:
+        //   expected_cost_pct_of_comparison_sale = repCost / cAvgSale × 100
+        // What it means: at today's replacement cost, how big a slice of the
+        // comparison-period sale price would the cost eat? Compare to the
+        // existing avg_cost_pct.comparison to see margin erosion that hasn't
+        // happened yet but is on the horizon. Down = good (lower = healthier).
+        $expectedCostPctOfCompSale = null;
+        $horizonDeltaPp            = null;
+        if ($repCost !== null && $cAvgSale !== null && $cAvgSale != 0.0) {
+            $expectedCostPctOfCompSale = ($repCost / $cAvgSale) * 100;
+            // Δ vs the comparison-period actual cost % of sale: positive = pressure
+            if ($cAvgCostPct !== null) {
+                $horizonDeltaPp = $expectedCostPctOfCompSale - $cAvgCostPct;
+            }
+        }
 
         return [
             'in_both_periods' => $inBoth,
@@ -115,6 +136,11 @@ class MetricsCalculator
                 'baseline'      => $bAvgCostPct,
                 'comparison'    => $cAvgCostPct,
                 'diff_pp'       => ($bAvgCostPct !== null && $cAvgCostPct !== null) ? $cAvgCostPct - $bAvgCostPct : null,
+            ],
+            'expected_packed_cost' => $repCost,
+            'expected_cost_pct_of_comparison_sale' => [
+                'value'                 => $expectedCostPctOfCompSale,
+                'horizon_delta_pp'      => $horizonDeltaPp,  // vs comparison-period avg cost %
             ],
         ];
     }

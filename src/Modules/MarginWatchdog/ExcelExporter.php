@@ -187,13 +187,14 @@ class ExcelExporter
             'Avg Sale Baseline', 'Avg Sale Comparison', 'Δ Avg Sale (%)',
             'Avg Cost Baseline', 'Avg Cost Comparison', 'Δ Avg Cost (%)',
             'Avg Cost % Sale Baseline', 'Avg Cost % Sale Comparison', 'Δ Avg Cost % Sale (pp)',
+            'Expected Packed Cost (today)', 'Expected Cost % of Comp Sale', 'Horizon Δ vs Comp Actual (pp)',
             'Mixed UoM?',
         ];
         foreach ($headers as $i => $h) {
             $sheet->setCellValueByColumnAndRow($i + 1, 1, $h);
         }
-        $sheet->getStyle('A1:T1')->getFont()->setBold(true);
-        $sheet->getStyle('A1:T1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE7EBF0');
+        $sheet->getStyle('A1:W1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:W1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE7EBF0');
         $sheet->freezePane('A2');
 
         $r = 2;
@@ -220,7 +221,10 @@ class ExcelExporter
                 $sheet->setCellValue("Q{$r}", $m['avg_cost_pct']['baseline']);
                 $sheet->setCellValue("R{$r}", $m['avg_cost_pct']['comparison']);
                 $sheet->setCellValue("S{$r}", $m['avg_cost_pct']['diff_pp']);
-                $sheet->setCellValue("T{$r}", !empty($i['unit_mixed']) ? 'YES' : '');
+                $sheet->setCellValue("T{$r}", $m['expected_packed_cost']);
+                $sheet->setCellValue("U{$r}", $m['expected_cost_pct_of_comparison_sale']['value']);
+                $sheet->setCellValue("V{$r}", $m['expected_cost_pct_of_comparison_sale']['horizon_delta_pp']);
+                $sheet->setCellValue("W{$r}", !empty($i['unit_mixed']) ? 'YES' : '');
                 $r++;
             }
         }
@@ -234,8 +238,10 @@ class ExcelExporter
         $sheet->getStyle("M2:M{$r}")->getNumberFormat()->setFormatCode('0.00"%"');
         $sheet->getStyle("P2:P{$r}")->getNumberFormat()->setFormatCode('0.00"%"');
         $sheet->getStyle("Q2:S{$r}")->getNumberFormat()->setFormatCode('0.00"%"');
+        $sheet->getStyle("T2:T{$r}")->getNumberFormat()->setFormatCode('"$"#,##0.0000');
+        $sheet->getStyle("U2:V{$r}")->getNumberFormat()->setFormatCode('0.00"%"');
 
-        for ($c = 'A'; $c !== 'U'; $c++) {
+        for ($c = 'A'; $c !== 'X'; $c++) {
             $sheet->getColumnDimension($c)->setAutoSize(true);
         }
     }

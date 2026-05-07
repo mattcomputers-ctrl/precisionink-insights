@@ -43,6 +43,7 @@ join over `InvMovement`, `InvMovementDtl`, `ChangeSet`, `ChangeSetShipment`,
 |----------------------------------------------------------------------|--------|
 | `LEFT JOIN CMS.dbo.Entity e ON e.EntityCode = sd.BillTo`             | Look up `e.EntityName` for Bill To display (the view exposes `ShipToName` but not `BillToName`) |
 | `LEFT JOIN CMS.dbo.Item alias ON alias.ItemCode = sd.ItemName`       | Get the alias's own `Description` (item-drill-down only) |
+| `LEFT JOIN CMS.dbo.Item inv ON inv.Item = ISNULL(alias.ReplacedBy, alias.Item)` | Resolve to the inventory item to read `ReplacementCost` (item-drill-down only) — see caveat #5 |
 | `LEFT JOIN CMS.dbo.ChangeSet cs ON cs.ChangeSet = sd.ChangeSet`      | Walk up to the invoice header |
 | `LEFT JOIN CMS.dbo.[Trans] t ON t.[Trans] = cs.[Trans]`              | Reach `Trans.IsReversed` for the void filter |
 
@@ -52,11 +53,17 @@ join over `InvMovement`, `InvMovementDtl`, `ChangeSet`, `ChangeSetShipment`,
    as shipments with negative quantity. Per business owner: returns/credits
    are intentionally **not** netted into Margin Watchdog totals because
    they would distort the period-over-period comparison.
-2. **`COALESCE(t.IsReversed, 0) = 0`** — excludes voided shipments. CMS
-   marks the associated invoice's "Is Reversed" flag (`Trans.IsReversed`)
-   when a shipment is voided. Voids are typically pricing-error reversals
-   and have no place in trend analysis. The `COALESCE` keeps shipments
-   that don't yet have an invoice (where `t.IsReversed` is NULL).
+2. **Void filter via `Trans.ReversedTrans`** — excludes voided invoices.
+   When CMS reverses an invoice it inserts a second `Trans` row with
+   `ReversedTrans` pointing back to the original. Both rows of the pair
+   share the same `TransDocument` and must be excluded:
+   - `t.ReversedTrans IS NULL` rejects the reversal trans itself.
+   - A LEFT JOIN to a derived table of distinct `ReversedTrans` values,
+     plus `reversed_originals.ReversedTrans IS NULL`, rejects the original
+     row that was pointed at.
+   Both conditions also pass when there's no `Trans` row yet (the LEFT
+   JOIN to `Trans` returns NULL), so shipments that haven't been invoiced
+   yet still appear.
 
 ---
 
@@ -92,25 +99,53 @@ CMS shows.
 
 ### Caveat #4 — Returns, credits, voids: confirmed handling
 CMS records returns and credit memos as shipments with **negative quantity**
-on the line, and voids by flagging the **associated invoice's `IsReversed`
-field**. Per the business owner the rules for Margin Watchdog are:
+on the line. Voids are recorded by inserting a second `Trans` row whose
+`ReversedTrans` column points back at the original; both rows in the pair
+share the same `TransDocument`. Per the business owner the rules for
+Margin Watchdog are:
 
   - **Returns and credits are intentionally excluded.** They distort period
     comparisons because a return in one period offsets revenue from a
     completely different period. The query filter is `sd.QtyShipped > 0`.
   - **Voided shipments are excluded.** Voids in CMS are predominantly used
-    to undo pricing errors before the customer is billed, so they aren't
-    real activity worth analysing. The query filter is
-    `COALESCE(t.IsReversed, 0) = 0` against `CMS.dbo.[Trans]` joined via
-    `ChangeSet.Trans`. (`COALESCE` keeps shipments whose invoice has not
-    been generated yet — they have no `Trans` row, so `IsReversed` is
-    NULL, which we treat as not-reversed.)
+    to undo pricing errors, so they aren't real activity worth analysing.
+    Both halves of the `(original, reversal)` pair are filtered out:
+    - the reversal row via `t.ReversedTrans IS NULL`
+    - the original row via a LEFT JOIN to a derived table of `DISTINCT
+      ReversedTrans` values, plus `reversed_originals.ReversedTrans IS NULL`
 
-If your environment uses a different column name than `IsReversed` on the
-`Trans` table, update both the WHERE clauses and the join in
-[ShipmentService.php](src/Modules/MarginWatchdog/ShipmentService.php). The
-column name is the only piece of this rule that's environment-specific —
-the rest of the logic is portable.
+Verified directionality: `Trans.ReversedTrans` on row R contains the
+`Trans` PK of the **original** that R is reversing. The original itself
+has `ReversedTrans = NULL`. Confirmed against live data — the void filter
+removes both halves and leaves un-invoiced shipments alone.
+
+### Caveat #5 — Expected packed cost: lookup, not recalculation
+The "Expected Packed Cost" column in the item drill-down comes from
+`Item.ReplacementCost` on the **inventory item** (resolved via the alias's
+`ReplacedBy` chain). CMS already pre-computes this value as
+`bulk_replacement_cost + Σ (packaging ingredient qty × packaging
+ReplacementCost)` and stores the result on the packaged inventory item, so
+we don't walk the recipe tree at query time.
+
+Verified example: `E1055-50` (5 lb packaged ink), `Item.ReplacementCost =
+3.6655`, which equals `(1.0 × E1055@3.4344) + (0.215 × 5LBPT@1.08)` from
+its `RecipeDetail` lines.
+
+Two consequences:
+
+1. **Aliases store NULL replacement cost** — at probe time, all 7,197
+   alias rows had `ReplacementCost IS NULL`, so the lookup MUST follow
+   `alias.ReplacedBy` to the inventory item. The query uses
+   `ISNULL(alias.ReplacedBy, alias.Item)` so the same join works for
+   non-alias inventory items too.
+2. **Some inventory items have no replacement cost on file** (e.g.
+   shipping fees, credit-card fees, items without supplier prices). Those
+   rows show "N/A" for the Expected Packed Cost column rather than $0.
+
+If `Item.ReplacementCost` becomes stale relative to current input prices
+in your environment, switch to walking the recipe at query time. The
+fallback path is documented inline in
+[ShipmentService.php](src/Modules/MarginWatchdog/ShipmentService.php).
 
 ### Caveat #5 — Mixed unit of measure on a single alias
 A single alias can theoretically be sold in multiple units across different

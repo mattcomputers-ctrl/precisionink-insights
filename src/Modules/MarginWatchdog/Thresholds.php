@@ -43,6 +43,7 @@ class Thresholds
         'avg_sale'          => ['direction' => 'up_good',   'unit' => 'pct', 'green' => 3.0, 'red' => 3.0],
         'avg_cost'          => ['direction' => 'down_good', 'unit' => 'pct', 'green' => 3.0, 'red' => 3.0],
         'avg_cost_pct'      => ['direction' => 'down_good', 'unit' => 'pp',  'green' => 1.0, 'red' => 1.0],
+        'expected_cost_pct' => ['direction' => 'down_good', 'unit' => 'pp',  'green' => 1.0, 'red' => 1.0],
         'qty'               => ['direction' => 'up_good',   'unit' => 'pct', 'green' => 5.0, 'red' => 5.0],
     ];
 
@@ -55,6 +56,7 @@ class Thresholds
         'avg_sale'          => 'Avg sale per unit',
         'avg_cost'          => 'Avg cost per unit',
         'avg_cost_pct'      => 'Avg cost % of avg sale',
+        'expected_cost_pct' => 'Expected cost % of comparison sale (forward-looking)',
         'qty'               => 'Quantity sold',
     ];
 

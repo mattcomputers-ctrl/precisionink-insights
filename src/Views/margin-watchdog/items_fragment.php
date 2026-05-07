@@ -40,6 +40,8 @@ if (!function_exists('mw_item_class')) {
             <th class="text-right">Avg Sale/Unit<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
             <th class="text-right">Avg Cost/Unit<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
             <th class="text-right">Avg Cost % of Sale<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ pp</span></th>
+            <th class="text-right" title="Today's packed replacement cost per unit, sourced from CMS Item.ReplacementCost (bulk + packaging, pre-computed by CMS)">Expected Packed Cost<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">today, /unit</span></th>
+            <th class="text-right" title="Today's expected packed cost as a percentage of the comparison-period average sale price. Forward-looking: shows margin pressure that hasn't shown up in shipments yet.">Expected Cost % of Comp Sale<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">value · Δ vs comp actual (pp)</span></th>
         </tr>
     </thead>
     <tbody>
@@ -85,6 +87,24 @@ if (!function_exists('mw_item_class')) {
                 <?= $m['avg_cost_pct']['comparison'] === null ? '—' : fmt_pct($m['avg_cost_pct']['comparison']) ?>
                 <span class="<?= mw_item_class('avg_cost_pct', $m['avg_cost_pct']['diff_pp'], $thresholds, $colorsOn, $m['in_both_periods']) ?>" style="margin-left:0.4rem;">
                     <?= $m['avg_cost_pct']['diff_pp'] === null ? 'N/A' : fmt_pp($m['avg_cost_pct']['diff_pp']) ?>
+                </span>
+            </td>
+            <td class="text-right">
+                <?= $m['expected_packed_cost'] === null ? '<span class="text-dim">N/A</span>' : fmt_money($m['expected_packed_cost'], 4) ?>
+            </td>
+            <td class="text-right">
+                <?php
+                    $expValue   = $m['expected_cost_pct_of_comparison_sale']['value'];
+                    $horizonPp  = $m['expected_cost_pct_of_comparison_sale']['horizon_delta_pp'];
+                    // Coloring: only when we have BOTH the comp-period actual and the
+                    // forward-looking value (so the delta is meaningful). The single
+                    // value itself is just informational.
+                    $hasBoth    = $expValue !== null && $horizonPp !== null;
+                    $cls        = mw_item_class('expected_cost_pct', $horizonPp, $thresholds, $colorsOn, $hasBoth);
+                ?>
+                <?= $expValue === null ? '<span class="text-dim">N/A</span>' : fmt_pct($expValue) ?>
+                <span class="<?= $cls ?>" style="margin-left:0.4rem;">
+                    <?= $horizonPp === null ? 'N/A' : fmt_pp($horizonPp) ?>
                 </span>
             </td>
         </tr>
