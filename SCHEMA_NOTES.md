@@ -41,7 +41,7 @@ join over `InvMovement`, `InvMovementDtl`, `ChangeSet`, `ChangeSetShipment`,
 
 | Join                                                                 | Reason |
 |----------------------------------------------------------------------|--------|
-| `LEFT JOIN CMS.dbo.Entity e ON e.EntityCode = sd.BillTo`             | Look up `e.EntityName` for Bill To display (the view exposes `ShipToName` but not `BillToName`) |
+| `LEFT JOIN CMS.dbo.Entities e ON e.EntityCode = sd.BillTo`           | Look up `e.EntityName` for Bill To display. NOTE: the `Entities` **view** exposes `EntityName`; the `Entity` **base table** does not. |
 | `LEFT JOIN CMS.dbo.Item alias ON alias.ItemCode = sd.ItemName`       | Get the alias's own `Description` (item-drill-down only) |
 | `LEFT JOIN CMS.dbo.Item inv ON inv.Item = ISNULL(alias.ReplacedBy, alias.Item)` | Resolve to the inventory item to read `ReplacementCost` (item-drill-down only) — see caveat #5 |
 | `LEFT JOIN CMS.dbo.ChangeSet cs ON cs.ChangeSet = sd.ChangeSet`      | Walk up to the invoice header |

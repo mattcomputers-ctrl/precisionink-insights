@@ -154,7 +154,7 @@ class ShipmentService
                     COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.UnitCost * sd.QtyShipped ELSE 0 END), 0) AS comparison_cost,
                     COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.QtyShipped ELSE 0 END), 0) AS comparison_qty
                 FROM CMS.dbo.ShipmentDetails sd
-                LEFT JOIN CMS.dbo.Entity e        ON e.EntityCode = sd.BillTo
+                LEFT JOIN CMS.dbo.Entities e      ON e.EntityCode = sd.BillTo
                 LEFT JOIN CMS.dbo.ChangeSet cs    ON cs.ChangeSet = sd.ChangeSet
                 LEFT JOIN CMS.dbo.[Trans]    t    ON t.[Trans]   = cs.[Trans]
                 LEFT JOIN (
