@@ -319,6 +319,11 @@ class AdminController
      */
     public function snapshotStatus(): void
     {
+        // Polled every 3-5 seconds — make sure no caching layer between
+        // here and the browser holds onto a stale answer.
+        header('Cache-Control: no-store, must-revalidate');
+        header('Pragma: no-cache');
+
         $statusFile = App::basePath() . '/storage/cache/snapshot-status.json';
         if (!file_exists($statusFile)) {
             json_response(['state' => 'idle']);

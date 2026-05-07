@@ -138,24 +138,39 @@ $earliest     = $snapshotInfo['earliest'] ?? null;
 
     async function poll() {
         try {
-            const resp = await fetch('/admin/settings/snapshot-status', { headers: { 'Accept': 'application/json' } });
+            const resp = await fetch('/admin/settings/snapshot-status', {
+                headers: { 'Accept': 'application/json' },
+                cache:   'no-store'
+            });
             const json = await resp.json();
-            apply(json);
-            if (json.state === 'running') {
-                timer = setTimeout(poll, 3000);
-            } else if (json.state === 'finished' && prevState === 'running') {
-                // We saw it finish — refresh the page so the stat tiles update
+
+            const wasRunning  = (prevState === 'running');
+            const justFinished = wasRunning && json.state === 'finished';
+
+            if (justFinished) {
+                // Hold the bar at 100% briefly so the user sees completion,
+                // then reload so the stat tiles refresh.
+                wrap.style.display = '';
+                bar.style.width    = '100%';
+                headline.innerHTML = '✓ Snapshot complete!';
+                meta.textContent   = '100%';
                 detail.textContent = 'Refreshing…';
                 setTimeout(() => window.location.reload(), 1500);
-            } else if (json.state === 'stale') {
-                headline.textContent = 'Snapshot run appears to have stalled';
-                meta.textContent     = '';
-                detail.innerHTML     = '<span class="text-warn">Heartbeat older than 90 s. Check storage/logs/snapshot-inventory.log for the failure reason.</span>';
+                return;  // stop polling — page is about to reload
             }
+
+            apply(json);
             prevState = json.state;
+
+            // ALWAYS reschedule. The race when starting a run is the main reason
+            // the bar would otherwise disappear: page renders before script writes
+            // its first status, JS sees 'idle', and would stop. Slower interval
+            // when nothing's happening keeps the cost minimal.
+            const next = (json.state === 'running' || json.state === 'stale') ? 3000 : 5000;
+            timer = setTimeout(poll, next);
         } catch (err) {
-            // Endpoint failure shouldn't break the page — just stop polling.
-            timer = null;
+            // Network blip — back off and try again
+            timer = setTimeout(poll, 10000);
         }
     }
 
@@ -173,15 +188,21 @@ $earliest     = $snapshotInfo['earliest'] ?? null;
         const total     = d.total_dates || 0;
         const completed = d.completed_dates || 0;
 
+        if (json.state === 'stale') {
+            headline.textContent = 'Snapshot run appears to have stalled';
+            meta.textContent     = '';
+            detail.innerHTML     = '<span class="text-warn">Heartbeat older than 90 s. Check storage/logs/snapshot-inventory.log for the failure reason.</span>';
+            return;
+        }
+
         if (total <= 1) {
             headline.textContent = 'Capturing yesterday\'s snapshot…';
         } else {
             headline.textContent = 'Backfilling inventory snapshots — ' + completed + ' of ' + total;
         }
-
         meta.textContent = pct.toFixed(1) + '%';
 
-        const phaseTxt = d.current_phase ? d.current_phase : '';
+        const phaseTxt = d.current_phase || '';
         const dateTxt  = d.current_date  ? ('· ' + d.current_date) : '';
         const errTxt   = d.error ? ('  · last error: ' + d.error) : '';
         detail.textContent = phaseTxt + (dateTxt ? ' ' + dateTxt : '') + errTxt;

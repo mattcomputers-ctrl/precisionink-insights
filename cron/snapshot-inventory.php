@@ -73,6 +73,21 @@ $status_state = [
 ];
 $status_write($status_state);
 
+// Always finalize status on exit so the dashboard's progress poller
+// sees a clean "finished" state rather than waiting 90s for the
+// heartbeat to go stale. Covers early exits AND fatal errors.
+register_shutdown_function(function () use (&$status_state, $status_write): void {
+    if (empty($status_state['finished_at'])) {
+        $status_state['finished_at']   = date('Y-m-d H:i:s');
+        $status_state['current_phase'] = $status_state['error'] ? 'error' : 'done';
+        $err = error_get_last();
+        if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            $status_state['error'] = $err['message'];
+        }
+        $status_write($status_state);
+    }
+});
+
 // Build the list of dates to (re)capture.
 $dates = [];
 if (isset($opts['date'])) {
