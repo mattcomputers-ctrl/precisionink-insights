@@ -57,14 +57,14 @@ chmod -R 755 "$INSTALL_DIR"
 chmod -R 775 "$INSTALL_DIR"/storage 2>/dev/null || true
 [ -f "$INSTALL_DIR/config/config.php" ] && chmod 640 "$INSTALL_DIR/config/config.php"
 
-# 5. Ensure inventory-snapshot cron is installed (idempotent — added in v1.x)
+# 5. Ensure inventory-snapshot cron is installed at the canonical schedule.
+# Always rewrite the entry so changes to the schedule propagate to existing
+# deployments on the next update.sh run.
 if [ -f "$INSTALL_DIR/cron/snapshot-inventory.php" ]; then
-    if ! crontab -u www-data -l 2>/dev/null | grep -q 'snapshot-inventory'; then
-        say "Installing nightly inventory-snapshot cron…"
-        CRON_ENTRY="# Precision Ink Insights — nightly inventory snapshot
-30 2 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
-        ( crontab -u www-data -l 2>/dev/null; echo "$CRON_ENTRY" ) | crontab -u www-data -
-    fi
+    say "Refreshing inventory-snapshot cron entry (03:00 daily)…"
+    CRON_ENTRY="# Precision Ink Insights — nightly inventory snapshot
+0 3 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
+    ( crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory'; echo "$CRON_ENTRY" ) | crontab -u www-data -
 fi
 
 # 6. If inventory_snapshots is empty, hint at backfill

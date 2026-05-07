@@ -268,10 +268,78 @@ class AdminController
             $overrides[$row['key']] = (string) ($row['value'] ?? '');
         }
 
+        // Inventory snapshot status for the manual-trigger UI
+        $snapshotInfo = $db->fetch(
+            "SELECT MAX(snapshot_date) AS latest, MIN(snapshot_date) AS earliest,
+                    COUNT(DISTINCT snapshot_date) AS days_captured
+               FROM inventory_snapshots"
+        ) ?: [];
+
         layout('admin/settings/index', [
-            'pageTitle'    => 'System settings',
-            'appNameValue' => $overrides['app.name'] ?? '',
+            'pageTitle'     => 'System settings',
+            'appNameValue'  => $overrides['app.name'] ?? '',
             'configAppName' => (string) App::config('app.name', 'Precision Ink Insights'),
+            'snapshotInfo'  => $snapshotInfo,
+        ]);
+    }
+
+    /**
+     * Kick off a snapshot run in the background. Returns immediately so
+     * the click responds instantly even though the underlying CMS query
+     * takes 45+ seconds (or 25 minutes for a 30-day backfill).
+     */
+    public function runInventorySnapshot(): void
+    {
+        CSRF::validateRequest();
+        $this->spawnSnapshot([], 'manual_yesterday');
+        $_SESSION['_flash']['success'] = 'Snapshot for yesterday started in the background. Refresh in about a minute.';
+        redirect('/admin/settings');
+    }
+
+    public function backfillInventorySnapshots(): void
+    {
+        CSRF::validateRequest();
+        $this->spawnSnapshot(['--backfill-days=30'], 'manual_backfill_30');
+        $_SESSION['_flash']['success'] = '30-day backfill started in the background. This usually takes about 25 minutes — you can keep using the system while it runs. Refresh this page later to see the new "earliest snapshot" date.';
+        redirect('/admin/settings');
+    }
+
+    /**
+     * Spawn cron/snapshot-inventory.php as a detached background process.
+     * Stdout + stderr go to the same log the cron job uses. Falls back to
+     * a synchronous run if exec() is disabled (rare but possible on
+     * locked-down PHP installs).
+     *
+     * @param list<string> $extraArgs CLI args to pass through (e.g. --backfill-days=30)
+     */
+    private function spawnSnapshot(array $extraArgs, string $auditEntityId): void
+    {
+        $base       = App::basePath();
+        $scriptPath = $base . '/cron/snapshot-inventory.php';
+        $logPath    = $base . '/storage/logs/snapshot-inventory.log';
+
+        $argString = '';
+        foreach ($extraArgs as $a) {
+            $argString .= ' ' . escapeshellarg($a);
+        }
+        $cmd = sprintf(
+            'nohup php %s%s >> %s 2>&1 &',
+            escapeshellarg($scriptPath),
+            $argString,
+            escapeshellarg($logPath)
+        );
+
+        if (function_exists('exec')) {
+            exec($cmd);
+        }
+
+        Database::getInstance()->insert('audit_log', [
+            'user_id'     => current_user_id(),
+            'entity_type' => 'inventory_snapshot',
+            'entity_id'   => $auditEntityId,
+            'action'      => 'run',
+            'details'     => json_encode(['args' => $extraArgs]),
+            'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
         ]);
     }
 

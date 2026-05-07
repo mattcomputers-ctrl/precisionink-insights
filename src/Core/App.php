@@ -153,6 +153,8 @@ class App
 
             $r->get('/settings',  'AdminController@settings');
             $r->post('/settings', 'AdminController@saveSettings');
+            $r->post('/settings/run-snapshot',     'AdminController@runInventorySnapshot');
+            $r->post('/settings/backfill-snapshot', 'AdminController@backfillInventorySnapshots');
 
             $r->get('/audit-log', 'AdminController@auditLog');
         });

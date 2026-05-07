@@ -383,10 +383,10 @@ print_success "Apache configured and restarted."
 print_header "Step 6b: Setting up cron"
 
 CRON_ENTRY="# Precision Ink Insights — nightly inventory snapshot (~45s per day)
-30 2 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
+0 3 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
 
 ( crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory'; echo "$CRON_ENTRY" ) | crontab -u www-data -
-print_success "Nightly inventory snapshot cron installed (runs 02:30)."
+print_success "Nightly inventory snapshot cron installed (runs 03:00)."
 
 # ── Step 6c: Initial 30-day inventory backfill (background) ───
 # Each call to GetInventoryAtDate takes ~45s, so 30 days = ~25 minutes.
