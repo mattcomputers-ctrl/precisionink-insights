@@ -75,7 +75,7 @@ class ExcelExporter
         $row = 6;
         $headers = ['Metric', 'Baseline', 'Comparison', 'Difference'];
         foreach ($headers as $i => $h) {
-            $sheet->setCellValueByColumnAndRow($i + 1, $row, $h);
+            $sheet->setCellValue([$i + 1, $row], $h);
         }
         $sheet->getStyle("A{$row}:D{$row}")->getFont()->setBold(true);
         $sheet->getStyle("A{$row}:D{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE7EBF0');
@@ -129,7 +129,7 @@ class ExcelExporter
             'Baseline Qty', 'Comparison Qty',
         ];
         foreach ($headers as $i => $h) {
-            $sheet->setCellValueByColumnAndRow($i + 1, 1, $h);
+            $sheet->setCellValue([$i + 1, 1], $h);
         }
         $sheet->getStyle('A1:S1')->getFont()->setBold(true);
         $sheet->getStyle('A1:S1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE7EBF0');
@@ -191,7 +191,7 @@ class ExcelExporter
             'Mixed UoM?',
         ];
         foreach ($headers as $i => $h) {
-            $sheet->setCellValueByColumnAndRow($i + 1, 1, $h);
+            $sheet->setCellValue([$i + 1, 1], $h);
         }
         $sheet->getStyle('A1:W1')->getFont()->setBold(true);
         $sheet->getStyle('A1:W1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE7EBF0');
