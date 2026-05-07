@@ -13,16 +13,24 @@ use PII\Core\CMSDatabase;
  *   - DateShipped     ← invoice/ship date (Waybill.DateShipped if CMP, else ChangeSet.ChangeDate)
  *   - BillTo          ← Entities.EntityCode via Ordr.BillTo
  *   - ItemName        ← alias item code (Item.ItemCode via OrdDetail.ItemName)
- *   - Description     ← inventory item Description (NOT the alias's own description)
- *   - QtyShipped      ← positive (view negates the inventory movement)
+ *   - QtyShipped      ← positive for outbound (view negates the inventory movement); negative = return/credit
  *   - UnitPrice       ← sales unit price
  *   - UnitCost        ← packed raw cost per unit at time of shipment (canonical)
  *   - TotalAmount     ← line revenue (use this directly; do NOT recompute)
  *   - OrderedUnit     ← per-line UoM
  *
+ * Filtering rules (per business owner):
+ *   - QtyShipped > 0  → returns/credits (negative-qty shipments) are EXCLUDED
+ *   - Trans.IsReversed = 0 (or NULL for un-invoiced) → voided shipments
+ *     EXCLUDED. CMS marks the associated invoice's "Is Reversed" flag
+ *     when a shipment is voided.
+ *   - Description for items comes from the alias item (Item.Description
+ *     joined on ItemCode = ShipmentDetails.ItemName), NOT the inventory
+ *     item description that the view exposes by default.
+ *
  * Conditional aggregation packs both date ranges into one round trip
  * to MSSQL. SCHEMA_NOTES.md documents the underlying tables, the
- * date-field semantics, and how returns/credits/voids are handled.
+ * date-field semantics, and the filtering rules above.
  */
 class ShipmentService
 {
@@ -71,8 +79,12 @@ class ShipmentService
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.UnitCost * sd.QtyShipped ELSE 0 END), 0) AS comparison_cost,
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.QtyShipped ELSE 0 END), 0) AS comparison_qty
             FROM CMS.dbo.ShipmentDetails sd
-            WHERE (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
-               OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
+            LEFT JOIN CMS.dbo.ChangeSet cs ON cs.ChangeSet = sd.ChangeSet
+            LEFT JOIN CMS.dbo.[Trans]    t  ON t.[Trans]   = cs.[Trans]
+            WHERE sd.QtyShipped > 0
+              AND COALESCE(t.IsReversed, 0) = 0
+              AND ((sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
+                OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?)))
         ";
 
         $params = [
@@ -136,9 +148,13 @@ class ShipmentService
                     COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.UnitCost * sd.QtyShipped ELSE 0 END), 0) AS comparison_cost,
                     COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.QtyShipped ELSE 0 END), 0) AS comparison_qty
                 FROM CMS.dbo.ShipmentDetails sd
-                LEFT JOIN CMS.dbo.Entity e ON e.EntityCode = sd.BillTo
-                WHERE (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
-                   OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
+                LEFT JOIN CMS.dbo.Entity e        ON e.EntityCode = sd.BillTo
+                LEFT JOIN CMS.dbo.ChangeSet cs    ON cs.ChangeSet = sd.ChangeSet
+                LEFT JOIN CMS.dbo.[Trans]    t    ON t.[Trans]   = cs.[Trans]
+                WHERE sd.QtyShipped > 0
+                  AND COALESCE(t.IsReversed, 0) = 0
+                  AND ((sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
+                    OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?)))
                 GROUP BY sd.BillTo
                 HAVING SUM(sd.TotalAmount) <> 0 OR SUM(sd.QtyShipped) <> 0
             ";
@@ -216,10 +232,13 @@ class ShipmentService
         string $cStart, string $cEnd,
         string $viewMode = 'both'
     ): array {
+        // Joining CMS.dbo.Item ON ItemCode = sd.ItemName gives the alias's own
+        // Description (the view's own Description column is the inventory item's,
+        // which can diverge for relabeled / private-label SKUs).
         $sql = "
             SELECT
                 sd.ItemName,
-                MAX(sd.Description) AS Description,
+                MAX(alias.Description) AS Description,
                 MIN(sd.OrderedUnit) AS Unit,
                 COUNT(DISTINCT sd.OrderedUnit) AS unit_count,
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.TotalAmount ELSE 0 END), 0) AS baseline_revenue,
@@ -229,7 +248,12 @@ class ShipmentService
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.UnitCost * sd.QtyShipped ELSE 0 END), 0) AS comparison_cost,
                 COALESCE(SUM(CASE WHEN sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?) THEN sd.QtyShipped ELSE 0 END), 0) AS comparison_qty
             FROM CMS.dbo.ShipmentDetails sd
+            LEFT JOIN CMS.dbo.Item alias       ON alias.ItemCode = sd.ItemName
+            LEFT JOIN CMS.dbo.ChangeSet cs     ON cs.ChangeSet   = sd.ChangeSet
+            LEFT JOIN CMS.dbo.[Trans]    t     ON t.[Trans]      = cs.[Trans]
             WHERE sd.BillTo = ?
+              AND sd.QtyShipped > 0
+              AND COALESCE(t.IsReversed, 0) = 0
               AND ((sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?))
                 OR (sd.DateShipped >= ? AND sd.DateShipped < DATEADD(day, 1, ?)))
             GROUP BY sd.ItemName

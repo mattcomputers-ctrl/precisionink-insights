@@ -160,12 +160,13 @@ See **SCHEMA_NOTES.md** for the documented CMS join patterns to reuse.
 
 ## Known TODOs
 
-- Returns / credits / voids: see SCHEMA_NOTES.md caveat #4 — needs
-  ERP-admin verification of which `InvMovement.Context` values represent
-  these so they can be netted into Margin Watchdog totals.
 - Per-day normalisation of unequal date ranges is intentionally out of
   scope for v1.
 - Ship To breakdown is intentionally out of scope (Bill To only for v1).
+- If your CMS marks voided shipments via a column other than
+  `Trans.IsReversed`, update the filters in
+  [ShipmentService.php](src/Modules/MarginWatchdog/ShipmentService.php).
+  See SCHEMA_NOTES.md caveat #4.
 
 ---
 
