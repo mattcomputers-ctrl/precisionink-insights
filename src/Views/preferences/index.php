@@ -45,7 +45,9 @@ use PII\Modules\MarginWatchdog\Thresholds;
         </div>
         <?php foreach ($labels as $metric => $label):
             $cfg  = $thresholds[$metric] ?? Thresholds::DEFAULTS[$metric];
-            $unit = $cfg['unit'] === 'pp' ? 'pp' : '%';
+            // pp-unit thresholds are point deltas; we display as "%" because the
+            // adjacent two cells are already percentages so context disambiguates.
+            $unit = '%';
             $dirClass = $cfg['direction'] === 'up_good' ? 'good-up' : 'good-down';
             $dirText  = $cfg['direction'] === 'up_good' ? 'UP is good' : 'DOWN is good';
         ?>

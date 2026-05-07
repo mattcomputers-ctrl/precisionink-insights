@@ -125,7 +125,7 @@ class ExcelExporter
             'Baseline Revenue', 'Comparison Revenue', 'Δ Revenue ($)', 'Δ Revenue (%)',
             'Baseline Packed Cost', 'Comparison Packed Cost', 'Δ Cost ($)', 'Δ Cost (%)',
             'Baseline $ Over Cost', 'Comparison $ Over Cost', 'Δ $ Over Cost ($)', 'Δ $ Over Cost (%)',
-            'Baseline Cost % of Rev', 'Comparison Cost % of Rev', 'Δ Cost %  (pp)',
+            'Baseline Cost % of Rev', 'Comparison Cost % of Rev', 'Δ Cost %',
             'Baseline Qty', 'Comparison Qty',
         ];
         foreach ($headers as $i => $h) {
@@ -186,8 +186,8 @@ class ExcelExporter
             'Baseline Revenue', 'Comparison Revenue', 'Δ Revenue (%)',
             'Avg Sale Baseline', 'Avg Sale Comparison', 'Δ Avg Sale (%)',
             'Avg Cost Baseline', 'Avg Cost Comparison', 'Δ Avg Cost (%)',
-            'Avg Cost % Sale Baseline', 'Avg Cost % Sale Comparison', 'Δ Avg Cost % Sale (pp)',
-            'Expected Packed Cost (today)', 'Expected Cost % of Comp Sale', 'Horizon Δ vs Comp Actual (pp)',
+            'Avg Cost % Sale Baseline', 'Avg Cost % Sale Comparison', 'Δ Avg Cost % Sale',
+            'Expected Packed Cost (today)', 'Expected Cost % of Comp Sale', 'Horizon Δ vs Comp Actual',
             'Mixed UoM?',
         ];
         foreach ($headers as $i => $h) {
@@ -262,6 +262,7 @@ class ExcelExporter
     {
         if ($v === null) return 'N/A';
         $sign = $v > 0 ? '+' : '';
-        return $sign . number_format($v, 2) . ' pp';
+        // Point delta but displayed as "%" — context (adjacent percentage cells) disambiguates.
+        return $sign . number_format($v, 2) . '%';
     }
 }

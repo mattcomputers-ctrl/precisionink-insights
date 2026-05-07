@@ -61,7 +61,7 @@ if (!function_exists('mw_class_for')) {
                 <th>Bill To</th>
                 <th class="text-right">Revenue<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
                 <th class="text-right">$ Over Cost<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
-                <th class="text-right">Cost % of Rev<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ pp</span></th>
+                <th class="text-right">Cost % of Rev<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
             </tr>
         </thead>
         <tbody>

@@ -39,9 +39,9 @@ if (!function_exists('mw_item_class')) {
             <th class="text-right">Revenue<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
             <th class="text-right">Avg Sale/Unit<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
             <th class="text-right">Avg Cost/Unit<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
-            <th class="text-right">Avg Cost % of Sale<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ pp</span></th>
+            <th class="text-right">Avg Cost % of Sale<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">B → C → Δ%</span></th>
             <th class="text-right" title="Today's packed replacement cost per unit, sourced from CMS Item.ReplacementCost (bulk + packaging, pre-computed by CMS)">Expected Packed Cost<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">today, /unit</span></th>
-            <th class="text-right" title="Today's expected packed cost as a percentage of the comparison-period average sale price. Forward-looking: shows margin pressure that hasn't shown up in shipments yet.">Expected Cost % of Comp Sale<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">value · Δ vs comp actual (pp)</span></th>
+            <th class="text-right" title="Today's expected packed cost as a percentage of the comparison-period average sale price. Forward-looking: shows margin pressure that hasn't shown up in shipments yet.">Expected Cost % of Comp Sale<br><span class="text-dim" style="font-weight:400;font-size:0.7rem;">value · Δ vs comp actual</span></th>
         </tr>
     </thead>
     <tbody>

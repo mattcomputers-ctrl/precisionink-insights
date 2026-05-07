@@ -152,13 +152,16 @@ function fmt_pct(float|int|null $n, int $decimals = 2): string
 }
 
 /**
- * Percentage-point delta (e.g. "+1.25 pp").
+ * Percentage-point delta — the literal subtraction of two percentages
+ * (33% − 30% = +3, NOT a relative percent change). Displayed with a "%"
+ * suffix to match exec preference; context (e.g. "X% of Y → 33% → 30%")
+ * makes it unambiguous that this is a point delta, not a percent change.
  */
 function fmt_pp(float|int|null $n, int $decimals = 2): string
 {
     if ($n === null) return '—';
     $sign = $n > 0 ? '+' : '';
-    return $sign . number_format((float) $n, $decimals, '.', ',') . ' pp';
+    return $sign . number_format((float) $n, $decimals, '.', ',') . '%';
 }
 
 function fmt_signed_money(float|int|null $n, int $decimals = 2): string
