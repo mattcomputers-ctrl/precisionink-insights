@@ -32,6 +32,29 @@ $ceDefault = $params['comparison_end']   !== '' ? $params['comparison_end']   : 
 
 <div class="card">
     <form method="GET" action="/margin-watchdog">
+        <?php if (!empty($quickPresets)): ?>
+        <div class="form-row" style="margin-bottom:0.5rem;">
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                <span class="text-muted" style="font-size:0.8rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Quick:</span>
+                <?php foreach ($quickPresets as $qp):
+                    $tip = sprintf(
+                        'Baseline: %s — %s · Comparison: %s — %s',
+                        fmt_date($qp['bs']), fmt_date($qp['be']),
+                        fmt_date($qp['cs']), fmt_date($qp['ce'])
+                    );
+                ?>
+                    <button type="button" class="btn btn-sm btn-outline"
+                            title="<?= e($tip) ?>"
+                            onclick="
+                                this.form.baseline_start.value   = '<?= e($qp['bs']) ?>';
+                                this.form.baseline_end.value     = '<?= e($qp['be']) ?>';
+                                this.form.comparison_start.value = '<?= e($qp['cs']) ?>';
+                                this.form.comparison_end.value   = '<?= e($qp['ce']) ?>';
+                            "><?= e($qp['name']) ?></button>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
         <div class="form-row">
             <div class="form-group">
                 <label>Baseline start</label>

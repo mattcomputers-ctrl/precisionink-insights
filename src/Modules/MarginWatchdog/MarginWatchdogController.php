@@ -21,10 +21,11 @@ class MarginWatchdogController
         $params   = $this->resolveDateRanges();
         $sort     = $_GET['sort'] ?? 'comparison';
 
-        $hasCms      = CMSDatabase::isConfigured();
-        $thresholds  = Thresholds::forUser($userId);
-        $presets     = $this->loadUserPresets($userId);
-        $colorsOn    = Thresholds::colorsEnabled($userId);
+        $hasCms       = CMSDatabase::isConfigured();
+        $thresholds   = Thresholds::forUser($userId);
+        $presets      = $this->loadUserPresets($userId);
+        $quickPresets = $this->computeQuickPresets();
+        $colorsOn     = Thresholds::colorsEnabled($userId);
 
         $errors  = [];
         $summary = null;
@@ -74,16 +75,17 @@ class MarginWatchdogController
         }
 
         layout('margin-watchdog/index', [
-            'pageTitle'  => 'Margin Watchdog',
-            'params'     => $params,
-            'sort'       => $sort,
-            'errors'     => $errors,
-            'summary'    => $summary,
-            'billTos'    => $billTos,
-            'thresholds' => $thresholds,
-            'presets'    => $presets,
-            'colorsOn'   => $colorsOn,
-            'hasCms'     => $hasCms,
+            'pageTitle'    => 'Margin Watchdog',
+            'params'       => $params,
+            'sort'         => $sort,
+            'errors'       => $errors,
+            'summary'      => $summary,
+            'billTos'      => $billTos,
+            'thresholds'   => $thresholds,
+            'presets'      => $presets,
+            'quickPresets' => $quickPresets,
+            'colorsOn'     => $colorsOn,
+            'hasCms'       => $hasCms,
         ], 'margin_watchdog');
     }
 
@@ -249,5 +251,59 @@ class MarginWatchdogController
              ORDER BY name",
             [$userId]
         );
+    }
+
+    /**
+     * Built-in quick presets computed against today's date.
+     * Each entry: name + 4 ISO date strings (bs, be, cs, ce).
+     * QTD/YTD presets match elapsed days into the prior period so the
+     * comparison is always equal-length, not a partial-vs-full mismatch.
+     */
+    private function computeQuickPresets(): array
+    {
+        $today = new \DateTimeImmutable('today');
+
+        // 1) Last 6 months vs prior 6 months
+        $sixAgo    = $today->modify('-6 months');
+        $twelveAgo = $today->modify('-12 months');
+
+        // 2) This quarter to date vs same elapsed days into last quarter
+        $month       = (int) $today->format('n');
+        $currentQ    = (int) ceil($month / 3);                // 1..4
+        $qStartMonth = ($currentQ - 1) * 3 + 1;               // 1, 4, 7, 10
+        $thisQStart  = $today->setDate((int) $today->format('Y'), $qStartMonth, 1);
+        $daysIntoQ   = (int) $thisQStart->diff($today)->days;
+        $lastQStart  = $thisQStart->modify('-3 months');
+        $lastQMatchEnd = $lastQStart->modify("+{$daysIntoQ} days");
+
+        // 3) This year to date vs same elapsed days into last year
+        $thisYStart  = $today->setDate((int) $today->format('Y'), 1, 1);
+        $daysIntoY   = (int) $thisYStart->diff($today)->days;
+        $lastYStart  = $thisYStart->modify('-1 year');
+        $lastYMatchEnd = $lastYStart->modify("+{$daysIntoY} days");
+
+        return [
+            [
+                'name' => 'Last 6 months vs prior 6 months',
+                'bs'   => $twelveAgo->format('Y-m-d'),
+                'be'   => $sixAgo->format('Y-m-d'),
+                'cs'   => $sixAgo->format('Y-m-d'),
+                'ce'   => $today->format('Y-m-d'),
+            ],
+            [
+                'name' => 'This QTD vs last QTD',
+                'bs'   => $lastQStart->format('Y-m-d'),
+                'be'   => $lastQMatchEnd->format('Y-m-d'),
+                'cs'   => $thisQStart->format('Y-m-d'),
+                'ce'   => $today->format('Y-m-d'),
+            ],
+            [
+                'name' => 'This YTD vs last YTD',
+                'bs'   => $lastYStart->format('Y-m-d'),
+                'be'   => $lastYMatchEnd->format('Y-m-d'),
+                'cs'   => $thisYStart->format('Y-m-d'),
+                'ce'   => $today->format('Y-m-d'),
+            ],
+        ];
     }
 }
