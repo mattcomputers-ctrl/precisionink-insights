@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In — <?= e($appName) ?></title>
+    <title>Sign In — <?= e(app_name()) ?></title>
     <link rel="stylesheet" href="/css/app.css">
 </head>
 <body class="login-page">
     <div class="login-container">
         <div class="login-header">
-            <h1><?= e($appName) ?></h1>
+            <h1><?= e(app_name()) ?></h1>
             <p>Executive Dashboard System</p>
         </div>
 

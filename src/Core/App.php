@@ -151,6 +151,9 @@ class App
             $r->post('/groups/{id}',        'AdminController@updateGroup');
             $r->post('/groups/{id}/delete', 'AdminController@deleteGroup');
 
+            $r->get('/settings',  'AdminController@settings');
+            $r->post('/settings', 'AdminController@saveSettings');
+
             $r->get('/audit-log', 'AdminController@auditLog');
         });
 

@@ -209,7 +209,7 @@ class MarginWatchdogController
             $params,
             $summary,
             $billTos,
-            App::config('app.name', 'Precision Ink Insights')
+            app_name()
         );
     }
 

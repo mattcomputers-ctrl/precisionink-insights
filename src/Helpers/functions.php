@@ -85,6 +85,30 @@ function csrf_token(): string
     return \PII\Core\CSRF::token();
 }
 
+/**
+ * App display name. Reads the `settings` table override first (set via
+ * /admin/settings), falls back to config['app.name']. Cached per-request
+ * so repeated calls in views don't hit the DB.
+ */
+function app_name(): string
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    try {
+        $row = \PII\Core\Database::getInstance()->fetch(
+            "SELECT `value` FROM settings WHERE `key` = 'app.name'"
+        );
+        if ($row && trim((string) ($row['value'] ?? '')) !== '') {
+            return $cached = trim($row['value']);
+        }
+    } catch (\Throwable $e) {
+        // DB unavailable (e.g. mid-install) — fall through to config
+    }
+    return $cached = (string) \PII\Core\App::config('app.name', 'Precision Ink Insights');
+}
+
 /* ------------------------------------------------------------------
  *  Flash messages
  * ----------------------------------------------------------------*/

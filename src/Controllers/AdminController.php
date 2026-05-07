@@ -253,6 +253,61 @@ class AdminController
     }
 
     /* ------------------------------------------------------------------
+     *  System settings
+     * ----------------------------------------------------------------*/
+
+    public function settings(): void
+    {
+        $db = Database::getInstance();
+
+        // Pull current overrides; if absent, fall through to config defaults
+        // when displaying — this lets admins know which fields are using config
+        // vs DB-overridden values without surprising them.
+        $overrides = [];
+        foreach ($db->fetchAll("SELECT `key`, `value` FROM settings") as $row) {
+            $overrides[$row['key']] = (string) ($row['value'] ?? '');
+        }
+
+        layout('admin/settings/index', [
+            'pageTitle'    => 'System settings',
+            'appNameValue' => $overrides['app.name'] ?? '',
+            'configAppName' => (string) App::config('app.name', 'Precision Ink Insights'),
+        ]);
+    }
+
+    public function saveSettings(): void
+    {
+        CSRF::validateRequest();
+        $db = Database::getInstance();
+
+        $appName = trim((string) ($_POST['app_name'] ?? ''));
+
+        // Empty value → DELETE the override so the config default takes over.
+        if ($appName === '') {
+            $db->delete('settings', '`key` = ?', ['app.name']);
+        } else {
+            $existing = $db->fetch("SELECT 1 FROM settings WHERE `key` = ?", ['app.name']);
+            if ($existing) {
+                $db->update('settings', ['value' => $appName], '`key` = ?', ['app.name']);
+            } else {
+                $db->insert('settings', ['key' => 'app.name', 'value' => $appName]);
+            }
+        }
+
+        $db->insert('audit_log', [
+            'user_id'     => current_user_id(),
+            'entity_type' => 'settings',
+            'entity_id'   => 'app.name',
+            'action'      => 'update',
+            'details'     => json_encode(['new_value' => $appName === '' ? '(cleared — using config default)' : $appName]),
+            'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+
+        $_SESSION['_flash']['success'] = 'Settings saved.';
+        redirect('/admin/settings');
+    }
+
+    /* ------------------------------------------------------------------
      *  Audit log
      * ----------------------------------------------------------------*/
 

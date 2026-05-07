@@ -19,7 +19,6 @@ class AuthController
 
         view('auth/login', [
             'pageTitle' => 'Sign In',
-            'appName'   => App::config('app.name', 'Precision Ink Insights'),
         ]);
     }
 

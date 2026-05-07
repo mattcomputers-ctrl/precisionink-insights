@@ -4,7 +4,7 @@
  * @var string $bodyContent  pre-rendered HTML
  * @var string|null $activeKey  module key currently active (null on dashboard / non-module pages)
  */
-$appName = \PII\Core\App::config('app.name', 'Precision Ink Insights');
+$appName = app_name();
 $user    = $_SESSION['_user'] ?? null;
 $modules = \PII\Core\App::modules()->all();
 $uri     = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
@@ -44,7 +44,9 @@ if ($user) {
             <?php endif; ?>
             <a href="/preferences" class="btn btn-sm" title="Preferences">⚙ Preferences</a>
             <?php if (!empty($user['is_admin'])): ?>
-                <a href="/admin/users" class="btn btn-sm">Admin</a>
+                <a href="/admin/settings" class="btn btn-sm" title="System settings">⚙ Settings</a>
+                <a href="/admin/users" class="btn btn-sm">Users</a>
+                <a href="/admin/audit-log" class="btn btn-sm">Audit</a>
             <?php endif; ?>
             <a href="/logout" class="btn btn-sm">Logout</a>
         </div>
