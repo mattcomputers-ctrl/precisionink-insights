@@ -47,9 +47,13 @@ class DashboardService
         $y     = date('Y-m-d', strtotime('-1 day'));
         $start = date('Y-m-d', strtotime($y . ' -30 day'));
 
+        // CONVERT(..., 23) forces ISO YYYY-MM-DD as a string, regardless of
+        // dblib/sqlsrv default date formatting. Without this, dblib returns
+        // dates like "May  6 2026 12:00:00:000AM" and the per-day comparison
+        // against $y === 'YYYY-MM-DD' silently never matches.
         $sql = "
             SELECT
-                CAST(sd.DateShipped AS DATE)                  AS d,
+                CONVERT(VARCHAR(10), sd.DateShipped, 23)      AS d,
                 COALESCE(SUM(sd.TotalAmount), 0)              AS revenue,
                 COALESCE(SUM(sd.UnitCost * sd.QtyShipped), 0) AS cost,
                 COUNT(*)                                      AS lines
@@ -64,7 +68,7 @@ class DashboardService
               AND ro.ReversedTrans IS NULL
               AND sd.DateShipped >= ?
               AND sd.DateShipped < DATEADD(day, 1, ?)
-            GROUP BY CAST(sd.DateShipped AS DATE)
+            GROUP BY CONVERT(VARCHAR(10), sd.DateShipped, 23)
         ";
         $rows = CMSDatabase::getInstance()->fetchAll($sql, [$start, $y]);
 
