@@ -300,8 +300,55 @@ class AdminController
     {
         CSRF::validateRequest();
         $this->spawnSnapshot(['--backfill-days=30'], 'manual_backfill_30');
-        $_SESSION['_flash']['success'] = '30-day backfill started in the background. This usually takes about 25 minutes — you can keep using the system while it runs. Refresh this page later to see the new "earliest snapshot" date.';
+        $_SESSION['_flash']['success'] = '30-day backfill started in the background. This usually takes about 25 minutes — you can keep using the system while it runs. The progress bar below will update as it goes.';
         redirect('/admin/settings');
+    }
+
+    /**
+     * GET /admin/settings/snapshot-status (JSON)
+     *
+     * Returns the current state of any in-flight or recently-finished
+     * snapshot run. Polled by the settings-page progress bar.
+     *
+     * State machine:
+     *   - "idle"     — no status file (nothing has run since boot)
+     *   - "running"  — script is actively writing heartbeats (fresh < 90s)
+     *   - "finished" — script wrote finished_at and exited cleanly
+     *   - "stale"    — heartbeat is older than 90s and never finished
+     *                  (likely the process was killed)
+     */
+    public function snapshotStatus(): void
+    {
+        $statusFile = App::basePath() . '/storage/cache/snapshot-status.json';
+        if (!file_exists($statusFile)) {
+            json_response(['state' => 'idle']);
+        }
+
+        $raw = @file_get_contents($statusFile);
+        $data = $raw ? json_decode($raw, true) : null;
+        if (!is_array($data)) {
+            json_response(['state' => 'idle']);
+        }
+
+        $state = 'running';
+        if (!empty($data['finished_at'])) {
+            $state = 'finished';
+        } elseif (!empty($data['heartbeat'])) {
+            $heartbeatAge = time() - strtotime($data['heartbeat']);
+            if ($heartbeatAge > 90) {
+                $state = 'stale';
+            }
+        }
+
+        $total     = max(1, (int) ($data['total_dates'] ?? 0));   // avoid div-by-zero
+        $completed = (int) ($data['completed_dates'] ?? 0);
+        $progress  = $total > 0 ? min(100, ($completed / $total) * 100) : 0;
+
+        json_response([
+            'state'        => $state,
+            'progress_pct' => round($progress, 1),
+            'data'         => $data,
+        ]);
     }
 
     /**

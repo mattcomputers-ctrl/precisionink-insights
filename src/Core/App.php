@@ -126,9 +126,11 @@ class App
         $router->get('/', 'DashboardController@index');
 
         // ── User preferences (per-user threshold/colour config) ──────
-        $router->get('/preferences',           'PreferencesController@index');
-        $router->post('/preferences',          'PreferencesController@save');
-        $router->post('/preferences/reset',    'PreferencesController@reset');
+        $router->get('/preferences',                       'PreferencesController@index');
+        $router->post('/preferences',                      'PreferencesController@save');
+        $router->post('/preferences/save-as-system',       'PreferencesController@saveAsSystemDefault');
+        $router->post('/preferences/reset',                'PreferencesController@reset');
+        $router->post('/preferences/reset-system-defaults','PreferencesController@resetSystemDefaults');
 
         // ── Date range presets (saved per user) ──────────────────────
         $router->get('/presets',               'PresetController@index');
@@ -155,6 +157,7 @@ class App
             $r->post('/settings', 'AdminController@saveSettings');
             $r->post('/settings/run-snapshot',     'AdminController@runInventorySnapshot');
             $r->post('/settings/backfill-snapshot', 'AdminController@backfillInventorySnapshots');
+            $r->get('/settings/snapshot-status',    'AdminController@snapshotStatus');
 
             $r->get('/audit-log', 'AdminController@auditLog');
         });

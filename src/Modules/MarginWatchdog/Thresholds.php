@@ -61,17 +61,29 @@ class Thresholds
     ];
 
     /**
-     * Load the user's thresholds. Falls back to defaults for any keys
-     * not yet customised.
+     * Load the user's thresholds with the three-tier resolution:
+     *
+     *     user preference   ←  highest priority (this user's customisation)
+     *         ↓ fallback
+     *     system default    ←  admin-set, applies to anyone without their own
+     *         ↓ fallback
+     *     code DEFAULTS     ←  shipped with the app
+     *
+     * Each metric is resolved independently — a user can override only the
+     * thresholds they care about and inherit the rest from the system or
+     * code defaults.
      */
     public static function forUser(int $userId): array
     {
+        // Tier 2: system defaults (admin-set, all users)
+        $system = self::systemDefaults();
+
+        // Tier 1: this user's overrides
         $rows = Database::getInstance()->fetchAll(
             "SELECT `key`, `value` FROM user_preferences
              WHERE user_id = ? AND `key` LIKE 'mw.threshold.%'",
             [$userId]
         );
-
         $custom = [];
         foreach ($rows as $r) {
             $shortKey = substr($r['key'], strlen('mw.threshold.'));
@@ -82,10 +94,74 @@ class Thresholds
         }
 
         $out = [];
-        foreach (self::DEFAULTS as $metric => $defaults) {
-            $out[$metric] = array_merge($defaults, $custom[$metric] ?? []);
+        foreach (self::DEFAULTS as $metric => $codeDefault) {
+            $out[$metric] = array_merge(
+                $codeDefault,
+                $system[$metric] ?? [],
+                $custom[$metric] ?? []
+            );
         }
         return $out;
+    }
+
+    /**
+     * System-wide threshold defaults (admin-set via /preferences while
+     * logged in as admin). Stored in the `settings` table under keys
+     * `mw.threshold.system.{metric}`. Returns only metrics that have
+     * been customised at the system level — others fall through to
+     * DEFAULTS at the call site.
+     *
+     * @return array<string, array{direction:string, unit:string, green:float, red:float}>
+     */
+    public static function systemDefaults(): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT `key`, `value` FROM settings WHERE `key` LIKE 'mw.threshold.system.%'"
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $shortKey = substr($r['key'], strlen('mw.threshold.system.'));
+            $decoded  = json_decode((string) ($r['value'] ?? ''), true);
+            if (is_array($decoded) && isset(self::DEFAULTS[$shortKey])) {
+                $out[$shortKey] = $decoded;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Save one metric's threshold as a system-wide default. Direction
+     * and unit come from DEFAULTS (not user-editable). Admin only —
+     * gating is enforced in the controller.
+     */
+    public static function saveSystemDefault(string $metric, float $green, float $red): void
+    {
+        if (!isset(self::DEFAULTS[$metric])) {
+            throw new \InvalidArgumentException("Unknown metric: $metric");
+        }
+        $merged = array_merge(self::DEFAULTS[$metric], [
+            'green' => max(0.0, $green),
+            'red'   => max(0.0, $red),
+        ]);
+        $key = 'mw.threshold.system.' . $metric;
+        $val = json_encode($merged);
+
+        $db = Database::getInstance();
+        $existing = $db->fetch("SELECT 1 FROM settings WHERE `key` = ?", [$key]);
+        if ($existing) {
+            $db->update('settings', ['value' => $val], '`key` = ?', [$key]);
+        } else {
+            $db->insert('settings', ['key' => $key, 'value' => $val]);
+        }
+    }
+
+    public static function resetSystemDefaults(): void
+    {
+        Database::getInstance()->delete(
+            'settings',
+            "`key` LIKE 'mw.threshold.system.%'",
+            []
+        );
     }
 
     /** Save a per-user threshold. Only green and red are user-editable; direction/unit are fixed. */

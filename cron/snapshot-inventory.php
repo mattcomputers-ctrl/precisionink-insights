@@ -48,6 +48,31 @@ if (!CMSDatabase::isConfigured()) {
 $mysql = Database::getInstance();
 $cms   = CMSDatabase::getInstance();
 
+// Status file used by /admin/settings to render a progress bar.
+// Atomic write (tmp + rename) so polled reads never see a partial file.
+$STATUS_FILE = App::basePath() . '/storage/cache/snapshot-status.json';
+@mkdir(dirname($STATUS_FILE), 0775, true);
+
+$status_write = static function (array $data) use ($STATUS_FILE): void {
+    $data['heartbeat'] = date('Y-m-d H:i:s');
+    $tmp = $STATUS_FILE . '.tmp';
+    if (file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT)) !== false) {
+        @rename($tmp, $STATUS_FILE);
+    }
+};
+$status_state = [
+    'pid'             => getmypid(),
+    'started_at'      => date('Y-m-d H:i:s'),
+    'finished_at'     => null,
+    'total_dates'     => 0,
+    'completed_dates' => 0,
+    'current_date'    => null,
+    'current_phase'   => 'starting',
+    'error'           => null,
+    'trigger'         => isset($opts['backfill-days']) ? 'backfill' : (isset($opts['date']) ? 'manual_date' : 'auto'),
+];
+$status_write($status_state);
+
 // Build the list of dates to (re)capture.
 $dates = [];
 if (isset($opts['date'])) {
@@ -88,6 +113,10 @@ sort($dates);
 
 echo sprintf("Capturing %d snapshot(s): %s\n", count($dates), implode(', ', $dates));
 
+$status_state['total_dates']   = count($dates);
+$status_state['current_phase'] = 'preparing';
+$status_write($status_state);
+
 $sql = "
     SELECT GLGroup,
            COALESCE(SUM(Qty), 0)              AS total_qty,
@@ -103,10 +132,16 @@ foreach ($dates as $date) {
     $start = microtime(true);
     echo "  [{$date}] querying CMS… ";
 
+    $status_state['current_date']  = $date;
+    $status_state['current_phase'] = 'querying CMS';
+    $status_write($status_state);
+
     try {
         $rows = $cms->fetchAll($sql, [$date]);
     } catch (\Throwable $e) {
         echo "FAILED: " . $e->getMessage() . "\n";
+        $status_state['error'] = "[{$date}] " . $e->getMessage();
+        $status_write($status_state);
         continue;
     }
 
@@ -114,8 +149,13 @@ foreach ($dates as $date) {
 
     if (empty($rows)) {
         echo "no inventory data (skipped, {$elapsed}s)\n";
+        $status_state['completed_dates']++;
+        $status_write($status_state);
         continue;
     }
+
+    $status_state['current_phase'] = 'writing local cache';
+    $status_write($status_state);
 
     $mysql->beginTransaction();
     try {
@@ -138,7 +178,16 @@ foreach ($dates as $date) {
     } catch (\Throwable $e) {
         $mysql->rollback();
         echo "DB FAILED: " . $e->getMessage() . "\n";
+        $status_state['error'] = "[{$date}] DB: " . $e->getMessage();
     }
+
+    $status_state['completed_dates']++;
+    $status_write($status_state);
 }
+
+$status_state['current_date']  = null;
+$status_state['current_phase'] = 'done';
+$status_state['finished_at']   = date('Y-m-d H:i:s');
+$status_write($status_state);
 
 echo "Done.\n";
