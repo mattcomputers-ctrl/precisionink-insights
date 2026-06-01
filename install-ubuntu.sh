@@ -397,7 +397,14 @@ if [ -f "$LOGROTATE_SRC" ]; then
     sed "s|/var/www/precision-ink-insights|$INSTALL_DIR|g" "$LOGROTATE_SRC" > "$LOGROTATE_DST"
     chmod 0644 "$LOGROTATE_DST"
     chown root:root "$LOGROTATE_DST"
-    print_success "Logrotate config installed (daily, 14-day retention, gzip)."
+    # Parser check — logrotate -d returns 0 even on parse errors, so grep for them.
+    LOGROTATE_ERRORS=$(logrotate -d "$LOGROTATE_DST" 2>&1 | grep '^error:' || true)
+    if [ -n "$LOGROTATE_ERRORS" ]; then
+        print_warn "Logrotate config has parser errors — log rotation will silently fail nightly:"
+        echo "$LOGROTATE_ERRORS" | sed 's/^/    /'
+    else
+        print_success "Logrotate config installed and validated (daily, 14-day retention, gzip)."
+    fi
 fi
 
 # ── Step 6c: Initial 30-day inventory backfill (background) ───

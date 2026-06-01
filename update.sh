@@ -65,6 +65,12 @@ if [ -f "$LOGROTATE_SRC" ]; then
     sed "s|/var/www/precision-ink-insights|$INSTALL_DIR|g" "$LOGROTATE_SRC" > "$LOGROTATE_DST"
     chmod 0644 "$LOGROTATE_DST"
     chown root:root "$LOGROTATE_DST"
+    # Parser check — without this a typo in the .conf rots silently for weeks.
+    LR_ERRORS=$(logrotate -d "$LOGROTATE_DST" 2>&1 | grep '^error:' || true)
+    if [ -n "$LR_ERRORS" ]; then
+        warn "Logrotate config has parser errors (log rotation will fail nightly):"
+        echo "$LR_ERRORS" | sed 's/^/    /'
+    fi
 fi
 
 # 5. Ensure inventory-snapshot cron is installed at the canonical schedule.
