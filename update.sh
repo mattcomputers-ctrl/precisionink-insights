@@ -77,10 +77,19 @@ fi
 # Always rewrite the entry so changes to the schedule propagate to existing
 # deployments on the next update.sh run.
 if [ -f "$INSTALL_DIR/cron/snapshot-inventory.php" ]; then
-    say "Refreshing inventory-snapshot cron entry (03:00 daily)…"
-    CRON_ENTRY="# Precision Ink Insights — nightly inventory snapshot
+    say "Refreshing inventory-snapshot cron entry (03:00 daily)..."
+    # ASCII-only comment — some Ubuntu cron builds silently drop the
+    # entire crontab on non-ASCII input (em-dash bit us for weeks).
+    CRON_ENTRY="# Precision Ink Insights - nightly inventory snapshot
 0 3 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
     ( crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory'; echo "$CRON_ENTRY" ) | crontab -u www-data -
+
+    # Read back and check — crontab exits 0 even on silent reject.
+    if ! crontab -u www-data -l 2>/dev/null | grep -q 'snapshot-inventory.php'; then
+        warn "Cron install appeared to succeed but 'crontab -u www-data -l' shows no entry."
+        warn "Nightly snapshots will not run until this is fixed. Investigate with:"
+        warn "  sudo crontab -u www-data -l"
+    fi
 fi
 
 # 6. If inventory_snapshots is empty, hint at backfill
