@@ -62,10 +62,15 @@ class SchedulingController
             $itemConfigs   = $svc->itemConfigs();
             $popularity    = $svc->popularityByBulk($packToBulk);
 
+            // Dry-grind derivation only matters for schedulable (configured)
+            // bulks — unconfigured items warn and never schedule.
+            $derived = $svc->derivePasses(array_keys($itemConfigs));
+
             $engine   = new ScheduleEngine($svc->colorOrder());
             $schedule = $engine->build(
                 $packPositions, $packToBulk, $itemConfigs,
-                $mills, $popularity, $weekStart, $enabledDays
+                $mills, $popularity, $weekStart, $enabledDays,
+                $derived['passes'], $derived['dry']
             );
 
             Database::getInstance()->insert('audit_log', [
@@ -120,13 +125,66 @@ class SchedulingController
 
         $configs = $db->fetchAll("SELECT * FROM sched_item_config ORDER BY bulk_item_code");
 
+        // Worklist: bulks with min-stock packs that aren't configured yet.
+        // CMS-dependent; degrade gracefully when CMS is down.
+        $needsConfig    = [];
+        $worklistError  = null;
+        if (CMSDatabase::isConfigured()) {
+            try {
+                $configured = array_flip(array_column($configs, 'bulk_item_code'));
+                foreach ($svc->bulksWithMinStock() as $b) {
+                    if (!isset($configured[$b['bulk']])) {
+                        $needsConfig[] = $b;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $worklistError = $e->getMessage();
+            }
+        } else {
+            $worklistError = 'CMS database not configured.';
+        }
+
         layout('scheduling/settings', [
-            'pageTitle'  => 'Scheduling settings',
-            'mills'      => $svc->mills(false),
-            'colorOrder' => $svc->colorOrder(),
-            'colors'     => SchedulingDataService::COLORS,
-            'configs'    => $configs,
+            'pageTitle'      => 'Scheduling settings',
+            'mills'          => $svc->mills(false),
+            'colorOrder'     => $svc->colorOrder(),
+            'colors'         => SchedulingDataService::COLORS,
+            'configs'        => $configs,
+            'needsConfig'    => $needsConfig,
+            'worklistError'  => $worklistError,
+            'dryTriggers'    => $svc->dryGrindTriggers(),
+            'dryPasses'      => $svc->dryGrindPasses(),
         ], 'scheduling');
+    }
+
+    /* ── Dry grind settings ─────────────────────────────────────── */
+
+    public function saveDryGrind(): void
+    {
+        CSRF::validateRequest();
+        $svc = new SchedulingDataService();
+        $svc->saveDryGrindPasses((int) ($_POST['dry_grind_passes'] ?? 3));
+
+        $newPattern = trim((string) ($_POST['new_pattern'] ?? ''));
+        if ($newPattern !== '') {
+            try {
+                $svc->addDryGrindTrigger($newPattern);
+            } catch (\Throwable $e) {
+                $_SESSION['_flash']['error'] = $e->getMessage();
+                redirect('/scheduling/settings');
+            }
+        }
+
+        $_SESSION['_flash']['success'] = 'Dry grind settings saved.';
+        redirect('/scheduling/settings');
+    }
+
+    public function deleteDryGrindTrigger(string $id): void
+    {
+        CSRF::validateRequest();
+        (new SchedulingDataService())->deleteDryGrindTrigger((int) $id);
+        $_SESSION['_flash']['success'] = 'Trigger removed.';
+        redirect('/scheduling/settings');
     }
 
     public function storeMill(): void
@@ -211,7 +269,6 @@ class SchedulingController
         CSRF::validateRequest();
         $code   = trim((string) ($_POST['bulk_item_code'] ?? ''));
         $color  = trim((string) ($_POST['color'] ?? ''));
-        $passes = max(1, (int) ($_POST['passes'] ?? 1));
         $b1     = (float) ($_POST['batch_size_1'] ?? 0);
         $b2raw  = trim((string) ($_POST['batch_size_2'] ?? ''));
         $b2     = $b2raw === '' ? null : (float) $b2raw;
@@ -224,7 +281,7 @@ class SchedulingController
         $db = Database::getInstance();
         $exists = $db->fetch("SELECT 1 FROM sched_item_config WHERE bulk_item_code = ?", [$code]);
         $data = [
-            'color' => $color, 'passes' => $passes,
+            'color' => $color,
             'batch_size_1' => $b1, 'batch_size_2' => $b2,
         ];
         if ($exists) {

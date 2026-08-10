@@ -200,16 +200,182 @@ class SchedulingDataService
         );
     }
 
-    /** @return array<string, array{color:string,passes:int,batch_size_1:float,batch_size_2:?float}> keyed by bulk code */
+    /** @return array<string, array{color:string,batch_size_1:float,batch_size_2:?float}> keyed by bulk code */
     public function itemConfigs(): array
     {
         $out = [];
         foreach ($this->db->fetchAll("SELECT * FROM sched_item_config") as $r) {
             $out[(string) $r['bulk_item_code']] = [
                 'color'        => (string) $r['color'],
-                'passes'       => (int)    $r['passes'],
                 'batch_size_1' => (float)  $r['batch_size_1'],
                 'batch_size_2' => $r['batch_size_2'] !== null ? (float) $r['batch_size_2'] : null,
+            ];
+        }
+        return $out;
+    }
+
+    /* ------------------------------------------------------------------
+     *  Dry-grind pass derivation
+     * ----------------------------------------------------------------*/
+
+    /** @return list<array{id:int,pattern:string}> */
+    public function dryGrindTriggers(): array
+    {
+        return array_map(
+            fn($r) => ['id' => (int) $r['id'], 'pattern' => (string) $r['pattern']],
+            $this->db->fetchAll("SELECT id, pattern FROM sched_dry_grind_triggers ORDER BY pattern")
+        );
+    }
+
+    public function addDryGrindTrigger(string $pattern): void
+    {
+        $pattern = strtoupper(trim($pattern));
+        if ($pattern === '' || strlen($pattern) > 30) {
+            throw new \InvalidArgumentException('Pattern must be 1-30 characters.');
+        }
+        $exists = $this->db->fetch("SELECT 1 FROM sched_dry_grind_triggers WHERE pattern = ?", [$pattern]);
+        if (!$exists) {
+            $this->db->insert('sched_dry_grind_triggers', ['pattern' => $pattern]);
+        }
+    }
+
+    public function deleteDryGrindTrigger(int $id): void
+    {
+        $this->db->delete('sched_dry_grind_triggers', 'id = ?', [$id]);
+    }
+
+    /** Global dry-grind pass count (settings; default 3). */
+    public function dryGrindPasses(): int
+    {
+        $row = $this->db->fetch("SELECT `value` FROM settings WHERE `key` = 'sched.dry_grind_passes'");
+        $v = $row ? (int) $row['value'] : 0;
+        return $v > 0 ? $v : 3;
+    }
+
+    public function saveDryGrindPasses(int $passes): void
+    {
+        $passes = max(1, $passes);
+        $exists = $this->db->fetch("SELECT 1 FROM settings WHERE `key` = 'sched.dry_grind_passes'");
+        if ($exists) {
+            $this->db->update('settings', ['value' => (string) $passes], '`key` = ?', ['sched.dry_grind_passes']);
+        } else {
+            $this->db->insert('settings', ['key' => 'sched.dry_grind_passes', 'value' => (string) $passes]);
+        }
+    }
+
+    /**
+     * LIKE-style match: '%' is a wildcard (PGK% = starts with PGK).
+     * Case-insensitive; no '%' = exact match. preg_quote leaves '%'
+     * untouched, so replacing it with .* after quoting is safe.
+     */
+    public static function matchesTrigger(string $code, string $pattern): bool
+    {
+        $regex = '/^' . str_replace('%', '.*', preg_quote(strtoupper($pattern), '/')) . '$/';
+        return (bool) preg_match($regex, strtoupper($code));
+    }
+
+    /**
+     * Derive passes for the given bulk items from their DIRECT recipe
+     * ingredients (Context='UI'). Dry grind if any direct ingredient
+     * matches any trigger; intermediates never propagate their own
+     * dry-grind status (they arrive pre-ground).
+     *
+     * @param list<string> $bulkCodes
+     * @return array{passes: array<string,int>, dry: array<string,bool>}
+     */
+    public function derivePasses(array $bulkCodes): array
+    {
+        $triggers  = array_column($this->dryGrindTriggers(), 'pattern');
+        $dryPasses = $this->dryGrindPasses();
+
+        $passes = [];
+        $dry    = [];
+        foreach ($bulkCodes as $c) {
+            $passes[$c] = 1;
+            $dry[$c]    = false;
+        }
+        if (empty($bulkCodes) || empty($triggers)) {
+            return ['passes' => $passes, 'dry' => $dry];
+        }
+
+        // Direct UI ingredients for all requested bulks, chunked IN clause
+        foreach (array_chunk($bulkCodes, 300) as $chunk) {
+            $ph  = implode(',', array_fill(0, count($chunk), '?'));
+            $sql = "
+                SELECT b.ItemCode AS bulk_code, ing.ItemCode AS ingredient
+                  FROM CMS.dbo.Item b
+                  JOIN CMS.dbo.Recipe r        ON r.Recipe  = b.CostingRecipe
+                  JOIN CMS.dbo.RecipeDetail rd ON rd.Recipe = r.Recipe AND rd.Context = 'UI'
+                  JOIN CMS.dbo.Item ing        ON ing.Item  = rd.Item
+                 WHERE b.ItemCode IN ({$ph})
+            ";
+            foreach ($this->cms->fetchAll($sql, $chunk) as $row) {
+                $bulk = (string) $row['bulk_code'];
+                if ($dry[$bulk] ?? false) continue;
+                foreach ($triggers as $t) {
+                    if (self::matchesTrigger((string) $row['ingredient'], $t)) {
+                        $dry[$bulk]    = true;
+                        $passes[$bulk] = $dryPasses;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return ['passes' => $passes, 'dry' => $dry];
+    }
+
+    /**
+     * Worklist: bulk items whose packs carry a minimum stock level,
+     * with current need — for the settings page "needs configuration"
+     * card (caller filters out already-configured codes).
+     *
+     * @return list<array{bulk:string, packs_with_min:int, total_min_lbs:float, current_need_lbs:float, packs_short_on_orders:int}>
+     */
+    public function bulksWithMinStock(): array
+    {
+        $sql = "
+            WITH PackMin AS (
+                SELECT i.Item, i.ItemCode AS pack,
+                       ms.MinimumStock,
+                       COALESCE(it.OpenToSell, 0) AS open_to_sell
+                  FROM CMS.dbo.Item i
+                  JOIN (SELECT Item, MAX(MinimumStock) AS MinimumStock
+                          FROM CMS.dbo.ItemEntity WHERE Context='ST' GROUP BY Item) ms
+                    ON ms.Item = i.Item AND ms.MinimumStock > 0
+                  LEFT JOIN (SELECT Item, SUM(QtyOpenToSell) AS OpenToSell
+                               FROM CMS.dbo.InventoryTotal GROUP BY Item) it
+                    ON it.Item = i.Item
+                 WHERE i.Context = 'PP'
+            ),
+            PackBulk AS (
+                SELECT pm.pack, pm.MinimumStock, pm.open_to_sell,
+                       b.ItemCode AS bulk_code, rd.QtyReqd,
+                       ROW_NUMBER() OVER (PARTITION BY pm.pack ORDER BY rd.QtyReqd DESC) AS rn
+                  FROM PackMin pm
+                  JOIN CMS.dbo.Item pi ON pi.ItemCode = pm.pack
+                  JOIN CMS.dbo.Recipe r ON r.Recipe = pi.CostingRecipe
+                  JOIN CMS.dbo.RecipeDetail rd ON rd.Recipe = r.Recipe AND rd.Context='UI'
+                  JOIN CMS.dbo.Item b ON b.Item = rd.Item AND b.Unit = 'lb'
+            )
+            SELECT bulk_code,
+                   COUNT(1) AS packs_with_min,
+                   SUM(MinimumStock) AS total_min_lbs,
+                   SUM(CASE WHEN MinimumStock - open_to_sell > 0 THEN MinimumStock - open_to_sell ELSE 0 END) AS current_need_lbs,
+                   SUM(CASE WHEN open_to_sell < 0 THEN 1 ELSE 0 END) AS packs_short_on_orders
+              FROM PackBulk
+             WHERE rn = 1
+             GROUP BY bulk_code
+             ORDER BY current_need_lbs DESC, bulk_code
+        ";
+        $out = [];
+        foreach ($this->cms->fetchAll($sql) as $r) {
+            $out[] = [
+                'bulk'                  => (string) $r['bulk_code'],
+                'packs_with_min'        => (int)    $r['packs_with_min'],
+                'total_min_lbs'         => (float)  $r['total_min_lbs'],
+                'current_need_lbs'      => (float)  $r['current_need_lbs'],
+                'packs_short_on_orders' => (int)    $r['packs_short_on_orders'],
             ];
         }
         return $out;

@@ -65,11 +65,13 @@ class ScheduleEngine
     /**
      * @param list<array> $packPositions   from SchedulingDataService::packPositions()
      * @param array<string,string> $packToBulk
-     * @param array<string,array> $itemConfigs   bulk → {color,passes,batch_size_1,batch_size_2}
+     * @param array<string,array> $itemConfigs   bulk → {color,batch_size_1,batch_size_2}
      * @param list<array> $mills           sched_mills rows (active)
      * @param array<string,float> $popularity    bulk → trailing shipped lbs
      * @param string $weekStart            Monday date YYYY-MM-DD
      * @param list<int> $enabledDays       7 flags Mon..Sun (1 = run)
+     * @param array<string,int> $passesByBulk   derived (dry-grind) passes; absent = 1
+     * @param array<string,bool> $dryByBulk     derived dry-grind flag (display only)
      */
     public function build(
         array $packPositions,
@@ -78,7 +80,9 @@ class ScheduleEngine
         array $mills,
         array $popularity,
         string $weekStart,
-        array $enabledDays
+        array $enabledDays,
+        array $passesByBulk = [],
+        array $dryByBulk = []
     ): array {
         $warnings = [];
 
@@ -118,7 +122,7 @@ class ScheduleEngine
         foreach ($bulkNeeds as $bulk => $bn) {
             $cfg = $itemConfigs[$bulk] ?? null;
             if ($cfg === null) {
-                $warnings[] = "Bulk item {$bulk} has need (" . round($bn['need_lbs']) . " lbs across " . count($bn['packs']) . " pack(s)) but no scheduling config (color/passes/batch size) — NOT scheduled. Configure it in Scheduling → Settings.";
+                $warnings[] = "Bulk item {$bulk} has need (" . round($bn['need_lbs']) . " lbs across " . count($bn['packs']) . " pack(s)) but no scheduling config (color/batch size) — NOT scheduled. Configure it in Scheduling → Settings.";
                 continue;
             }
             if (!isset($this->colorIndex[$cfg['color']])) {
@@ -162,7 +166,8 @@ class ScheduleEngine
                     'batch_count'=> count($batchLbsList),
                     'color'      => $cfg['color'],
                     'color_idx'  => $this->colorIndex[$cfg['color']],
-                    'passes'     => max(1, (int) $cfg['passes']),
+                    'passes'     => max(1, (int) ($passesByBulk[$bulk] ?? 1)),
+                    'dry_grind'  => (bool) ($dryByBulk[$bulk] ?? false),
                     'lbs'        => $lbs,
                     'tier1'      => $bn['tier1'],
                     'popularity' => $popularity[$bulk] ?? 0.0,
@@ -358,6 +363,7 @@ class ScheduleEngine
                 'color'          => $batch['color'],
                 'lbs'            => $batch['lbs'],
                 'passes'         => $batch['passes'],
+                'dry_grind'      => $batch['dry_grind'] ?? false,
                 'tier1'          => $batch['tier1'],
                 'carryover'      => !$first,
                 'washup'         => $first ? $best['wash_tier'] : null,

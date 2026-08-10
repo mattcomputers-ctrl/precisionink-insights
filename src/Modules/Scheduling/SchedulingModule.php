@@ -27,6 +27,8 @@ class SchedulingModule extends Module
             $r->post('/settings/mills/{id}',        $c . '@updateMill');
             $r->post('/settings/mills/{id}/delete', $c . '@deleteMill');
             $r->post('/settings/color-order',       $c . '@saveColorOrder');
+            $r->post('/settings/dry-grind',         $c . '@saveDryGrind');
+            $r->post('/settings/dry-grind/{id}/delete', $c . '@deleteDryGrindTrigger');
             $r->get('/settings/item-search',        $c . '@itemSearch');    // CMS bulk item lookup
             $r->post('/settings/items',             $c . '@saveItemConfig');
             $r->post('/settings/items/delete',      $c . '@deleteItemConfig');

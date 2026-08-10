@@ -191,8 +191,17 @@ released production — released batches count via `QtyOnOrder`, so they
 correctly keep an item out of tier 1).
 
 Local config (MySQL): `sched_mills` (equipment), `sched_item_config`
-(bulk item → color/passes/batch sizes), `settings['sched.color_order']`.
-The full engine algorithm is documented at the top of
+(bulk item → color/batch sizes), `sched_dry_grind_triggers` (raw-material
+patterns, `%` wildcard), `settings['sched.color_order']`,
+`settings['sched.dry_grind_passes']`.
+
+**Passes are derived, not configured**: a bulk item's formula is a dry
+grind when any raw material in its **direct** recipe (`Context='UI'`
+lines only — no recursion into sub-recipes) matches a trigger pattern;
+dry grinds get the global pass count, everything else 1 pass.
+Intermediates never propagate their own dry-grind status — they were
+ground out when the intermediate was made. The full engine algorithm is
+documented at the top of
 [ScheduleEngine.php](src/Modules/Scheduling/ScheduleEngine.php).
 
 ## 5. How to add a new module / tab
