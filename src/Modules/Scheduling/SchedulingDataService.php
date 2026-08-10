@@ -350,7 +350,7 @@ class SchedulingDataService
             ),
             PackBulk AS (
                 SELECT pm.pack, pm.MinimumStock, pm.open_to_sell,
-                       b.ItemCode AS bulk_code, rd.QtyReqd,
+                       b.ItemCode AS bulk_code, b.Description AS bulk_desc, rd.QtyReqd,
                        ROW_NUMBER() OVER (PARTITION BY pm.pack ORDER BY rd.QtyReqd DESC) AS rn
                   FROM PackMin pm
                   JOIN CMS.dbo.Item pi ON pi.ItemCode = pm.pack
@@ -359,6 +359,7 @@ class SchedulingDataService
                   JOIN CMS.dbo.Item b ON b.Item = rd.Item AND b.Unit = 'lb'
             )
             SELECT bulk_code,
+                   MAX(bulk_desc) AS bulk_desc,
                    COUNT(1) AS packs_with_min,
                    SUM(MinimumStock) AS total_min_lbs,
                    SUM(CASE WHEN MinimumStock - open_to_sell > 0 THEN MinimumStock - open_to_sell ELSE 0 END) AS current_need_lbs,
@@ -372,6 +373,7 @@ class SchedulingDataService
         foreach ($this->cms->fetchAll($sql) as $r) {
             $out[] = [
                 'bulk'                  => (string) $r['bulk_code'],
+                'description'           => (string) ($r['bulk_desc'] ?? ''),
                 'packs_with_min'        => (int)    $r['packs_with_min'],
                 'total_min_lbs'         => (float)  $r['total_min_lbs'],
                 'current_need_lbs'      => (float)  $r['current_need_lbs'],

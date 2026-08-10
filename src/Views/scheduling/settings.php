@@ -174,13 +174,14 @@
         <p class="text-muted" style="font-size:0.85rem;margin-bottom:0.5rem;"><?= count($needsConfig) ?> item(s) to configure</p>
         <table class="table">
             <thead>
-                <tr><th>Bulk item</th><th class="text-right">Packs w/ min</th><th class="text-right">Total min (lbs)</th>
+                <tr><th>Bulk item</th><th>Description</th><th class="text-right">Packs w/ min</th><th class="text-right">Total min (lbs)</th>
                     <th class="text-right">Current need (lbs)</th><th>Order shortfall?</th><th></th></tr>
             </thead>
             <tbody>
             <?php foreach ($needsConfig as $b): ?>
                 <tr>
                     <td><span class="tag"><?= e($b['bulk']) ?></span></td>
+                    <td><?= e($b['description'] ?? '') ?></td>
                     <td class="text-right"><?= (int) $b['packs_with_min'] ?></td>
                     <td class="text-right"><?= fmt_number($b['total_min_lbs'], 0) ?></td>
                     <td class="text-right <?= $b['current_need_lbs'] > 0 ? 'text-warn' : 'text-dim' ?>"><?= fmt_number($b['current_need_lbs'], 0) ?></td>
