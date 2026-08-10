@@ -33,7 +33,7 @@ class ScheduleExporter
             $r = 1;
             $sheet->setCellValue("A{$r}", $mill['mill_name'] . ' — week of ' . $schedule['week_start']);
             $sheet->getStyle("A{$r}")->getFont()->setBold(true)->setSize(14);
-            $sheet->mergeCells("A{$r}:F{$r}");
+            $sheet->mergeCells("A{$r}:G{$r}");
             $r += 2;
 
             foreach ($mill['days'] ?? [] as $day) {
@@ -41,9 +41,9 @@ class ScheduleExporter
 
                 $sheet->setCellValue("A{$r}", $day['dow'] . ' ' . $day['date']);
                 $sheet->getStyle("A{$r}")->getFont()->setBold(true)->setSize(12);
-                $sheet->getStyle("A{$r}:F{$r}")->getFill()->setFillType(Fill::FILL_SOLID)
+                $sheet->getStyle("A{$r}:G{$r}")->getFill()->setFillType(Fill::FILL_SOLID)
                     ->getStartColor()->setARGB('FFDCE6F1');
-                $sheet->mergeCells("A{$r}:F{$r}");
+                $sheet->mergeCells("A{$r}:G{$r}");
                 $r++;
 
                 if (empty($day['runs'])) {
@@ -54,11 +54,11 @@ class ScheduleExporter
                 }
 
                 // Header row
-                $headers = ['#', 'Item', 'Description', 'Color', 'Total Lbs', 'Pack Breakdown'];
+                $headers = ['#', 'Item', 'Description', 'Color', 'Passes', 'Total Lbs', 'Pack Breakdown'];
                 foreach ($headers as $i => $h) {
                     $sheet->setCellValue([$i + 1, $r], $h);
                 }
-                $sheet->getStyle("A{$r}:F{$r}")->getFont()->setBold(true);
+                $sheet->getStyle("A{$r}:G{$r}")->getFont()->setBold(true);
                 $r++;
 
                 $n = 0;
@@ -89,12 +89,13 @@ class ScheduleExporter
                     $sheet->setCellValue("B{$r}", $label);
                     $sheet->setCellValue("C{$r}", $desc);
                     $sheet->setCellValue("D{$r}", $colorCell);
-                    $sheet->setCellValue("E{$r}", !empty($run['carryover']) ? '' : (float) $run['lbs']);
-                    $sheet->setCellValue("F{$r}", implode(' · ', $packParts));
+                    $sheet->setCellValue("E{$r}", !empty($run['carryover']) ? '' : (int) ($run['passes'] ?? 1));
+                    $sheet->setCellValue("F{$r}", !empty($run['carryover']) ? '' : (float) $run['lbs']);
+                    $sheet->setCellValue("G{$r}", implode(' · ', $packParts));
 
                     if (!empty($run['carryover'])) {
-                        $sheet->getStyle("A{$r}:F{$r}")->getFont()->setItalic(true);
-                        $sheet->getStyle("A{$r}:F{$r}")->getFill()->setFillType(Fill::FILL_SOLID)
+                        $sheet->getStyle("A{$r}:G{$r}")->getFont()->setItalic(true);
+                        $sheet->getStyle("A{$r}:G{$r}")->getFill()->setFillType(Fill::FILL_SOLID)
                             ->getStartColor()->setARGB('FFF5F0DC');
                     }
                     if (!empty($run['tier1']) && empty($run['carryover'])) {
@@ -105,8 +106,8 @@ class ScheduleExporter
                 $r++;   // gap between days
             }
 
-            $sheet->getStyle('E:E')->getNumberFormat()->setFormatCode('#,##0');
-            foreach (range('A', 'F') as $col) {
+            $sheet->getStyle('F:F')->getNumberFormat()->setFormatCode('#,##0');
+            foreach (range('A', 'G') as $col) {
                 $sheet->getColumnDimension($col)->setAutoSize(true);
             }
         }

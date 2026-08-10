@@ -75,6 +75,26 @@ class SchedulingController
                 $derived['passes'], $derived['dry'], $bulkDescs
             );
 
+            // Config foot-gun warnings — surface silently-inert dry-grind setups.
+            $preWarnings = [];
+            if (empty($svc->dryGrindTriggers())) {
+                $preWarnings[] = 'No dry-grind trigger patterns configured — every item is being treated as a single-pass standard grind. Add triggers in Scheduling → Settings.';
+            }
+            $lazyMills = [];
+            foreach ($mills as $m) {
+                if (!empty($m['dry_grind_capable'])
+                    && (float) ($m['lbs_per_hour_dry'] ?? 0) === (float) $m['lbs_per_hour']) {
+                    $lazyMills[] = $m['name'];
+                }
+            }
+            if (!empty($lazyMills)) {
+                $preWarnings[] = 'Dry-grind rate equals the standard rate on: ' . implode(', ', $lazyMills)
+                    . ' — dry grinding will not run slower until you set the real "Lbs/hr dry" for these mills.';
+            }
+            if (!empty($preWarnings)) {
+                $schedule['warnings'] = array_merge($preWarnings, $schedule['warnings'] ?? []);
+            }
+
             Database::getInstance()->insert('audit_log', [
                 'user_id'     => current_user_id(),
                 'entity_type' => 'scheduling',
@@ -131,6 +151,8 @@ class SchedulingController
         // CMS-dependent; degrade gracefully when CMS is down.
         $needsConfig    = [];
         $worklistError  = null;
+        $derivedDry     = null;   // bulk => bool, for the DG column on config rows
+        $derivedPasses  = null;
         if (CMSDatabase::isConfigured()) {
             try {
                 $configured = array_flip(array_column($configs, 'bulk_item_code'));
@@ -139,6 +161,9 @@ class SchedulingController
                         $needsConfig[] = $b;
                     }
                 }
+                $derived       = $svc->derivePasses(array_column($configs, 'bulk_item_code'));
+                $derivedDry    = $derived['dry'];
+                $derivedPasses = $derived['passes'];
             } catch (\Throwable $e) {
                 $worklistError = $e->getMessage();
             }
@@ -156,6 +181,8 @@ class SchedulingController
             'worklistError'  => $worklistError,
             'dryTriggers'    => $svc->dryGrindTriggers(),
             'dryPasses'      => $svc->dryGrindPasses(),
+            'derivedDry'     => $derivedDry,
+            'derivedPasses'  => $derivedPasses,
         ], 'scheduling');
     }
 

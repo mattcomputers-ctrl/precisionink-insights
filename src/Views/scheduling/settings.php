@@ -8,6 +8,8 @@
  * @var string|null $worklistError
  * @var array $dryTriggers   [{id, pattern}]
  * @var int   $dryPasses     global dry-grind pass count
+ * @var array|null $derivedDry     bulk => bool (dry-grind derived from formula), null if CMS unavailable
+ * @var array|null $derivedPasses  bulk => int
  */
 ?>
 <p><a href="/scheduling" class="btn btn-sm">← Back to schedule</a></p>
@@ -255,6 +257,7 @@
             <tr><th>Bulk item</th><th>Color</th>
                 <th class="text-right">Batch 1 (lbs)</th><th class="text-right">Batch 2 (lbs)</th>
                 <th title="Never milled — excluded from all schedules">Not milled</th>
+                <th title="Derived from the item's direct formula vs the dry-grind trigger patterns">Dry grind (derived)</th>
                 <th class="text-muted">Updated</th><th></th></tr>
         </thead>
         <tbody>
@@ -277,6 +280,16 @@
                         value="<?= $c['batch_size_2'] !== null ? e((string) round((float) $c['batch_size_2'])) : '' ?>"
                         placeholder="—" style="width:90px;"></td>
                 <td><input type="checkbox" name="not_milled" value="1" <?= !empty($c['not_milled']) ? 'checked' : '' ?>></td>
+                <td>
+                    <?php if ($derivedDry === null): ?>
+                        <span class="text-dim" title="CMS unavailable">?</span>
+                    <?php elseif (!empty($derivedDry[$c['bulk_item_code']])): ?>
+                        <span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);"
+                              title="Formula contains a trigger raw material">DG ×<?= (int) ($derivedPasses[$c['bulk_item_code']] ?? 1) ?></span>
+                    <?php else: ?>
+                        <span class="text-dim" title="No trigger raw material in the direct formula">—</span>
+                    <?php endif; ?>
+                </td>
                 <td class="text-muted"><?= e(fmt_date($c['updated_at'], 'm/d/Y')) ?></td>
                 <td class="text-right nowrap">
                     <button type="submit" class="btn btn-sm btn-primary">Save</button>

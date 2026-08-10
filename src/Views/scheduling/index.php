@@ -193,7 +193,8 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
             '<div style="font-weight:600;font-size:0.85rem;">' + colorDot + esc(run.bulk) + batchLabel + badge + '</div>' +
             (run.description ? '<div class="text-muted" style="font-size:0.72rem;">' + esc(run.description) + '</div>' : '') +
             (run.carryover ? '<div class="text-dim" style="font-size:0.72rem;">continues previous day\'s batch</div>'
-                           : '<div class="text-muted" style="font-size:0.75rem;">' + Number(run.lbs).toLocaleString() + ' lbs · ' + esc(run.color) + '</div>' +
+                           : '<div class="text-muted" style="font-size:0.75rem;">' + Number(run.lbs).toLocaleString() + ' lbs · ' + esc(run.color) +
+                             (run.passes > 1 ? ' · ' + run.passes + ' passes' : '') + '</div>' +
                              '<div class="text-dim" style="font-size:0.7rem;margin-top:0.2rem;">' + packs + '</div>') +
             '</div>';
     }

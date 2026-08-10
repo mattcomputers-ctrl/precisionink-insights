@@ -39,7 +39,10 @@ namespace PII\Modules\Scheduling;
  * 5. PLACEMENT: for each batch in sequence, pick the (mill, start day)
  *    that can run it (mill max batch ≥ batch lbs) with the earliest
  *    completion; ties broken by smallest washup penalty against that
- *    mill's last colour. All passes stay on the chosen mill.
+ *    mill's last colour. Standard batches prefer non-dry-capable mills
+ *    absolutely — they only land on a dry-grind mill when no other mill
+ *    can fit them this week, preserving capable-mill hours for dry
+ *    work. All passes stay on the chosen mill.
  *    Batches MAY carry over into following day(s); continuation rows are
  *    flagged carryover so production knows it's the same batch.
  *
@@ -363,7 +366,14 @@ class ScheduleEngine
                     break;   // doesn't fit starting at $d (or any later day — week full for this mill)
                 }
 
-                $completionKey = [$endDay, $d, $washTier];  // finish earliest, start earliest, least washup
+                // Standard batches prefer NON-dry-capable mills absolutely:
+                // capable-mill hours are the scarce resource for dry work,
+                // so a standard batch only lands there when no non-capable
+                // mill can fit it this week. (Dry batches only ever see
+                // capable mills, so the penalty is always 0 for them.)
+                $capablePenalty = (empty($batch['dry_grind']) && !empty($m['dry_grind_capable'])) ? 1 : 0;
+
+                $completionKey = [$capablePenalty, $endDay, $d, $washTier];
                 if ($best === null || $completionKey < $best['key']) {
                     $best = [
                         'mill_id' => $millId, 'start' => $d, 'end' => $endDay,
