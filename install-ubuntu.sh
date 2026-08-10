@@ -382,22 +382,23 @@ print_success "Apache configured and restarted."
 # ── Step 6b: Cron — nightly inventory snapshot ────────────────
 print_header "Step 6b: Setting up cron"
 
-# NOTE: ASCII only in the comment. Some Ubuntu cron builds silently
-# reject the entire crontab if the input contains non-ASCII bytes
-# (e.g. em-dash), which caused the entry to never install for weeks
-# even though the script printed "installed" successfully.
-CRON_ENTRY="# Precision Ink Insights - nightly inventory snapshot (~45s per day)
-0 3 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
+# File-based install, strictly sequential — the piped subshell form
+# failed silently on some cron builds (and non-ASCII comments do too).
+TMP_CRON=$(mktemp)
+crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory' > "$TMP_CRON" || true
+{
+    echo "# Precision Ink Insights - nightly inventory snapshot (approx 45s per day)"
+    echo "0 3 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
+} >> "$TMP_CRON"
+crontab -u www-data "$TMP_CRON" || print_warn "crontab rejected the generated file."
+rm -f "$TMP_CRON"
 
-( crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory'; echo "$CRON_ENTRY" ) | crontab -u www-data -
-
-# Verify it actually persisted — crontab exits 0 even on silent-reject.
+# Verify it actually persisted.
 if crontab -u www-data -l 2>/dev/null | grep -q 'snapshot-inventory.php'; then
     print_success "Nightly inventory snapshot cron installed and verified (runs 03:00)."
 else
-    print_warn "Cron install returned success but 'crontab -l' shows no snapshot entry."
-    print_warn "Snapshots will NOT run automatically until this is fixed. Try:"
-    print_warn "  sudo crontab -u www-data -e   # add entry manually"
+    print_warn "Cron entry not present after install. Snapshots will NOT run automatically."
+    print_warn "Diagnose: printf '* * * * * true\\n' | sudo crontab -u www-data - ; echo exit=\$?"
 fi
 
 # ── Step 6b2: Log rotation ────────────────────────────────────

@@ -78,17 +78,27 @@ fi
 # deployments on the next update.sh run.
 if [ -f "$INSTALL_DIR/cron/snapshot-inventory.php" ]; then
     say "Refreshing inventory-snapshot cron entry (03:00 daily)..."
-    # ASCII-only comment — some Ubuntu cron builds silently drop the
-    # entire crontab on non-ASCII input (em-dash bit us for weeks).
-    CRON_ENTRY="# Precision Ink Insights - nightly inventory snapshot
-0 3 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
-    ( crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory'; echo "$CRON_ENTRY" ) | crontab -u www-data -
+    # File-based install, strictly sequential. The previous piped form
+    # (subshell listing + writer in one pipeline) failed silently on this
+    # cron build even after removing non-ASCII characters.
+    TMP_CRON=$(mktemp)
+    crontab -u www-data -l 2>/dev/null | grep -v 'Precision Ink Insights' | grep -v 'snapshot-inventory' > "$TMP_CRON" || true
+    {
+        echo "# Precision Ink Insights - nightly inventory snapshot"
+        echo "0 3 * * * cd $INSTALL_DIR && /usr/bin/php cron/snapshot-inventory.php >> storage/logs/snapshot-inventory.log 2>&1"
+    } >> "$TMP_CRON"
+    if ! crontab -u www-data "$TMP_CRON"; then
+        warn "crontab rejected the file. Contents were:"
+        sed 's/^/    /' "$TMP_CRON"
+    fi
+    rm -f "$TMP_CRON"
 
-    # Read back and check — crontab exits 0 even on silent reject.
+    # Read back and check — belt and suspenders.
     if ! crontab -u www-data -l 2>/dev/null | grep -q 'snapshot-inventory.php'; then
-        warn "Cron install appeared to succeed but 'crontab -u www-data -l' shows no entry."
-        warn "Nightly snapshots will not run until this is fixed. Investigate with:"
+        warn "Cron entry STILL not present after file-based install."
+        warn "Nightly snapshots will not run. Diagnose with:"
         warn "  sudo crontab -u www-data -l"
+        warn "  printf '* * * * * true\\n' | sudo crontab -u www-data - ; echo exit=\$?"
     fi
 fi
 
