@@ -8,8 +8,10 @@
  * @var string|null $worklistError
  * @var array $dryTriggers   [{id, pattern}]
  * @var int   $dryPasses     global dry-grind pass count
+ * @var array $millTriggers  [{id, pattern}] — non-dry milling triggers
  * @var array|null $derivedDry     bulk => bool (dry-grind derived from formula), null if CMS unavailable
  * @var array|null $derivedPasses  bulk => int
+ * @var array|null $derivedMilled  bulk => bool (needs milling at all)
  */
 ?>
 <p><a href="/scheduling" class="btn btn-sm">← Back to schedule</a></p>
@@ -143,12 +145,56 @@
     </form>
 
     <?php if (empty($dryTriggers)): ?>
-        <p class="muted-empty">No trigger patterns yet — every formula is treated as a single pass until you add some.</p>
+        <p class="muted-empty">No dry-grind trigger patterns yet — no items will derive as dry grinds until you add some.</p>
     <?php else: ?>
         <div class="flex gap-1" style="flex-wrap:wrap;">
             <?php foreach ($dryTriggers as $t): ?>
                 <form method="POST" action="<?= e('/scheduling/settings/dry-grind/' . $t['id'] . '/delete') ?>" style="display:inline;"
                       onsubmit="return confirm('Remove trigger <?= e(addslashes($t['pattern'])) ?>?');">
+                    <?= csrf_field() ?>
+                    <span class="tag" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;">
+                        <?= e($t['pattern']) ?>
+                        <button type="submit" class="btn btn-sm btn-danger" style="padding:0 0.35rem;font-size:0.7rem;">✕</button>
+                    </span>
+                </form>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</div>
+
+<!-- ── Other milling triggers (non-dry) ──────────────────────── -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Other milling triggers (non-dry-grind)</h2>
+            <div class="card-subtitle">
+                Raw materials that require <strong>standard single-pass milling</strong>.
+                An item lands on the schedule only when its direct formula matches a pattern here and/or on the dry-grind list —
+                formulas matching neither are blends of pre-ground materials and are excluded,
+                <strong>unless a batch exceeds 50 lbs</strong>, which is always scheduled.
+                Same rules: <code>%</code> wildcard, direct formula only, intermediates never propagate.
+            </div>
+        </div>
+    </div>
+
+    <form method="POST" action="/scheduling/settings/mill-triggers" class="form-row" style="align-items:flex-end;">
+        <?= csrf_field() ?>
+        <div class="form-group" style="flex:0 0 220px;">
+            <label>Add trigger pattern</label>
+            <input type="text" name="new_pattern" placeholder="e.g. FLR%" maxlength="30">
+        </div>
+        <div class="form-group" style="flex:0 0 auto;">
+            <button type="submit" class="btn btn-primary">Add milling trigger</button>
+        </div>
+    </form>
+
+    <?php if (empty($millTriggers)): ?>
+        <p class="muted-empty">No milling trigger patterns yet.</p>
+    <?php else: ?>
+        <div class="flex gap-1" style="flex-wrap:wrap;">
+            <?php foreach ($millTriggers as $t): ?>
+                <form method="POST" action="<?= e('/scheduling/settings/mill-triggers/' . $t['id'] . '/delete') ?>" style="display:inline;"
+                      onsubmit="return confirm('Remove milling trigger <?= e(addslashes($t['pattern'])) ?>?');">
                     <?= csrf_field() ?>
                     <span class="tag" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;">
                         <?= e($t['pattern']) ?>
@@ -257,7 +303,7 @@
             <tr><th>Bulk item</th><th>Color</th>
                 <th class="text-right">Batch 1 (lbs)</th><th class="text-right">Batch 2 (lbs)</th>
                 <th title="Never milled — excluded from all schedules">Not milled</th>
-                <th title="Derived from the item's direct formula vs the dry-grind trigger patterns">Dry grind (derived)</th>
+                <th title="Derived from the item's direct formula vs the trigger lists: DG = dry grind, Mill = standard milling, Blend = matches neither (only schedules when a batch exceeds 50 lbs)">Milling (derived)</th>
                 <th class="text-muted">Updated</th><th></th></tr>
         </thead>
         <tbody>
@@ -285,9 +331,11 @@
                         <span class="text-dim" title="CMS unavailable">?</span>
                     <?php elseif (!empty($derivedDry[$c['bulk_item_code']])): ?>
                         <span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);"
-                              title="Formula contains a trigger raw material">DG ×<?= (int) ($derivedPasses[$c['bulk_item_code']] ?? 1) ?></span>
+                              title="Formula contains a dry-grind trigger raw material">DG ×<?= (int) ($derivedPasses[$c['bulk_item_code']] ?? 1) ?></span>
+                    <?php elseif (!empty($derivedMilled[$c['bulk_item_code']])): ?>
+                        <span class="pill" title="Formula contains a milling trigger raw material — standard single pass">Mill</span>
                     <?php else: ?>
-                        <span class="text-dim" title="No trigger raw material in the direct formula">—</span>
+                        <span class="text-dim" title="Matches neither trigger list — blend of pre-ground materials; only schedules when a batch exceeds 50 lbs">Blend</span>
                     <?php endif; ?>
                 </td>
                 <td class="text-muted"><?= e(fmt_date($c['updated_at'], 'm/d/Y')) ?></td>

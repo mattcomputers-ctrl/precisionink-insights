@@ -195,13 +195,20 @@ Local config (MySQL): `sched_mills` (equipment), `sched_item_config`
 patterns, `%` wildcard), `settings['sched.color_order']`,
 `settings['sched.dry_grind_passes']`.
 
-**Passes are derived, not configured**: a bulk item's formula is a dry
-grind when any raw material in its **direct** recipe (`Context='UI'`
-lines only — no recursion into sub-recipes) matches a trigger pattern;
-dry grinds get the global pass count, everything else 1 pass.
-Intermediates never propagate their own dry-grind status — they were
-ground out when the intermediate was made. The full engine algorithm is
-documented at the top of
+**Milling status and passes are derived, not configured.** Two trigger
+lists (`sched_dry_grind_triggers`, `sched_mill_triggers`, both
+`%`-wildcard patterns) are matched against the **direct** recipe
+ingredients only (`Context='UI'`, no recursion into sub-recipes):
+
+  - dry-grind trigger match → milled, global dry pass count, dry-capable mills only
+  - milling trigger match → milled, single pass
+  - neither → blend of pre-ground materials, **excluded from the schedule
+    entirely**, UNLESS a batch exceeds 50 lbs (big blends still need
+    production planning; small ones are bench work)
+
+Intermediates never propagate their own status — they were ground out
+when the intermediate was made. The full engine algorithm is documented
+at the top of
 [ScheduleEngine.php](src/Modules/Scheduling/ScheduleEngine.php).
 
 ## 5. How to add a new module / tab

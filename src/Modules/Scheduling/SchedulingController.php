@@ -72,13 +72,18 @@ class SchedulingController
             $schedule = $engine->build(
                 $packPositions, $packToBulk, $itemConfigs,
                 $mills, $popularity, $weekStart, $enabledDays,
-                $derived['passes'], $derived['dry'], $bulkDescs
+                $derived['passes'], $derived['dry'], $bulkDescs,
+                $derived['milled']
             );
 
-            // Config foot-gun warnings — surface silently-inert dry-grind setups.
+            // Config foot-gun warnings — surface silently-inert trigger setups.
             $preWarnings = [];
-            if (empty($svc->dryGrindTriggers())) {
-                $preWarnings[] = 'No dry-grind trigger patterns configured — every item is being treated as a single-pass standard grind. Add triggers in Scheduling → Settings.';
+            $dryEmpty  = empty($svc->dryGrindTriggers());
+            $millEmpty = empty($svc->millTriggers());
+            if ($dryEmpty && $millEmpty) {
+                $preWarnings[] = 'No dry-grind OR milling trigger patterns configured — nothing derives as needing milling, so ONLY batches over 50 lbs are being scheduled. Add trigger patterns in Scheduling → Settings.';
+            } elseif ($dryEmpty) {
+                $preWarnings[] = 'No dry-grind trigger patterns configured — no items will derive as dry grinds. Add triggers in Scheduling → Settings.';
             }
             $lazyMills = [];
             foreach ($mills as $m) {
@@ -151,8 +156,9 @@ class SchedulingController
         // CMS-dependent; degrade gracefully when CMS is down.
         $needsConfig    = [];
         $worklistError  = null;
-        $derivedDry     = null;   // bulk => bool, for the DG column on config rows
+        $derivedDry     = null;   // bulk => bool, for the derived column on config rows
         $derivedPasses  = null;
+        $derivedMilled  = null;
         if (CMSDatabase::isConfigured()) {
             try {
                 $configured = array_flip(array_column($configs, 'bulk_item_code'));
@@ -164,6 +170,7 @@ class SchedulingController
                 $derived       = $svc->derivePasses(array_column($configs, 'bulk_item_code'));
                 $derivedDry    = $derived['dry'];
                 $derivedPasses = $derived['passes'];
+                $derivedMilled = $derived['milled'];
             } catch (\Throwable $e) {
                 $worklistError = $e->getMessage();
             }
@@ -181,8 +188,10 @@ class SchedulingController
             'worklistError'  => $worklistError,
             'dryTriggers'    => $svc->dryGrindTriggers(),
             'dryPasses'      => $svc->dryGrindPasses(),
+            'millTriggers'   => $svc->millTriggers(),
             'derivedDry'     => $derivedDry,
             'derivedPasses'  => $derivedPasses,
+            'derivedMilled'  => $derivedMilled,
         ], 'scheduling');
     }
 
@@ -213,6 +222,29 @@ class SchedulingController
         CSRF::validateRequest();
         (new SchedulingDataService())->deleteDryGrindTrigger((int) $id);
         $_SESSION['_flash']['success'] = 'Trigger removed.';
+        redirect('/scheduling/settings');
+    }
+
+    public function addMillTriggerAction(): void
+    {
+        CSRF::validateRequest();
+        $pattern = trim((string) ($_POST['new_pattern'] ?? ''));
+        if ($pattern !== '') {
+            try {
+                (new SchedulingDataService())->addMillTrigger($pattern);
+                $_SESSION['_flash']['success'] = 'Milling trigger added.';
+            } catch (\Throwable $e) {
+                $_SESSION['_flash']['error'] = $e->getMessage();
+            }
+        }
+        redirect('/scheduling/settings');
+    }
+
+    public function deleteMillTriggerAction(string $id): void
+    {
+        CSRF::validateRequest();
+        (new SchedulingDataService())->deleteMillTrigger((int) $id);
+        $_SESSION['_flash']['success'] = 'Milling trigger removed.';
         redirect('/scheduling/settings');
     }
 

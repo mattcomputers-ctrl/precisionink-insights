@@ -19,6 +19,12 @@ namespace PII\Modules\Scheduling;
  *    open_to_sell already includes released production (QtyOnOrder), so a
  *    released batch that covers an order keeps the item OUT of tier 1.
  *
+ * 1b. MILLING GATE: an item appears on the schedule only when its DIRECT
+ *     formula matches a dry-grind trigger or a (non-dry) milling trigger —
+ *     formulas matching neither are blends of pre-ground materials and are
+ *     excluded — UNLESS a batch exceeds 50 lbs, which always schedules
+ *     (big blends still need production planning; small ones are bench work).
+ *
  * 2. AGGREGATE to bulk item (recipe map). A bulk is tier 1 if any of its
  *    packs is tier 1. Packs with need but no bulk config → warnings list.
  *
@@ -61,6 +67,9 @@ class ScheduleEngine
 {
     private const MIN_SPLIT_HOURS = 0.5;  // don't start a batch with less than this left in a day
 
+    /** Non-trigger (blend) items still schedule when any batch exceeds this. */
+    private const UNMILLED_MIN_LBS = 50.0;
+
     /** @var list<string> */
     private array $colorOrder;
     /** @var array<string,int> color → ladder index */
@@ -83,6 +92,9 @@ class ScheduleEngine
      * @param array<string,int> $passesByBulk   derived (dry-grind) passes; absent = 1
      * @param array<string,bool> $dryByBulk     derived dry-grind flag (display only)
      * @param array<string,string> $bulkDescriptions  bulk → Item.Description
+     * @param array<string,bool> $milledByBulk  derived "needs milling" flag; a bulk
+     *        absent from the map is treated as milled (fail-open). Non-milled
+     *        bulks only schedule when a batch exceeds UNMILLED_MIN_LBS.
      */
     public function build(
         array $packPositions,
@@ -94,7 +106,8 @@ class ScheduleEngine
         array $enabledDays,
         array $passesByBulk = [],
         array $dryByBulk = [],
-        array $bulkDescriptions = []
+        array $bulkDescriptions = [],
+        array $milledByBulk = []
     ): array {
         $warnings = [];
 
@@ -184,6 +197,15 @@ class ScheduleEngine
                         $remaining = 0.0;
                     }
                 }
+            }
+
+            // Milling gate: formulas that match neither trigger list are
+            // blends of pre-ground materials — bench work, not mill work —
+            // UNLESS a batch is big enough (> UNMILLED_MIN_LBS) that it
+            // needs production scheduling regardless.
+            $isMilled = array_key_exists($bulk, $milledByBulk) ? (bool) $milledByBulk[$bulk] : true;
+            if (!$isMilled && max($batchLbsList) <= self::UNMILLED_MIN_LBS) {
+                continue;   // small blend — off the schedule entirely
             }
 
             // Pack share: distribute each batch's lbs across packs pro-rata

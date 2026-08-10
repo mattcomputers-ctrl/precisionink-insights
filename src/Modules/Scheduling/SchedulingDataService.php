@@ -248,6 +248,32 @@ class SchedulingDataService
         $this->db->delete('sched_dry_grind_triggers', 'id = ?', [$id]);
     }
 
+    /** @return list<array{id:int,pattern:string}> Non-dry milling triggers. */
+    public function millTriggers(): array
+    {
+        return array_map(
+            fn($r) => ['id' => (int) $r['id'], 'pattern' => (string) $r['pattern']],
+            $this->db->fetchAll("SELECT id, pattern FROM sched_mill_triggers ORDER BY pattern")
+        );
+    }
+
+    public function addMillTrigger(string $pattern): void
+    {
+        $pattern = strtoupper(trim($pattern));
+        if ($pattern === '' || strlen($pattern) > 30) {
+            throw new \InvalidArgumentException('Pattern must be 1-30 characters.');
+        }
+        $exists = $this->db->fetch("SELECT 1 FROM sched_mill_triggers WHERE pattern = ?", [$pattern]);
+        if (!$exists) {
+            $this->db->insert('sched_mill_triggers', ['pattern' => $pattern]);
+        }
+    }
+
+    public function deleteMillTrigger(int $id): void
+    {
+        $this->db->delete('sched_mill_triggers', 'id = ?', [$id]);
+    }
+
     /** Global dry-grind pass count (settings; default 3). */
     public function dryGrindPasses(): int
     {
@@ -279,27 +305,39 @@ class SchedulingDataService
     }
 
     /**
-     * Derive passes for the given bulk items from their DIRECT recipe
-     * ingredients (Context='UI'). Dry grind if any direct ingredient
-     * matches any trigger; intermediates never propagate their own
-     * dry-grind status (they arrive pre-ground).
+     * Derive milling status + passes for the given bulk items from their
+     * DIRECT recipe ingredients (Context='UI').
+     *
+     *   - dry grind:  any direct ingredient matches a dry-grind trigger
+     *                 → milled, global dry-grind passes
+     *   - standard:   any direct ingredient matches a (non-dry) milling
+     *                 trigger → milled, 1 pass
+     *   - not milled: matches NEITHER list → the formula is a blend of
+     *                 pre-ground materials; it never appears on the mill
+     *                 schedule at all.
+     *
+     * Intermediates never propagate their own status — only the direct
+     * formula lines are inspected (they arrive pre-ground).
      *
      * @param list<string> $bulkCodes
-     * @return array{passes: array<string,int>, dry: array<string,bool>}
+     * @return array{passes: array<string,int>, dry: array<string,bool>, milled: array<string,bool>}
      */
     public function derivePasses(array $bulkCodes): array
     {
-        $triggers  = array_column($this->dryGrindTriggers(), 'pattern');
-        $dryPasses = $this->dryGrindPasses();
+        $dryTriggers  = array_column($this->dryGrindTriggers(), 'pattern');
+        $millTriggers = array_column($this->millTriggers(), 'pattern');
+        $dryPasses    = $this->dryGrindPasses();
 
         $passes = [];
         $dry    = [];
+        $milled = [];
         foreach ($bulkCodes as $c) {
             $passes[$c] = 1;
             $dry[$c]    = false;
+            $milled[$c] = false;
         }
-        if (empty($bulkCodes) || empty($triggers)) {
-            return ['passes' => $passes, 'dry' => $dry];
+        if (empty($bulkCodes) || (empty($dryTriggers) && empty($millTriggers))) {
+            return ['passes' => $passes, 'dry' => $dry, 'milled' => $milled];
         }
 
         // Direct UI ingredients for all requested bulks, chunked IN clause
@@ -315,18 +353,29 @@ class SchedulingDataService
             ";
             foreach ($this->cms->fetchAll($sql, $chunk) as $row) {
                 $bulk = (string) $row['bulk_code'];
-                if ($dry[$bulk] ?? false) continue;
-                foreach ($triggers as $t) {
-                    if (self::matchesTrigger((string) $row['ingredient'], $t)) {
+                if ($dry[$bulk] ?? false) continue;   // already at strongest tier
+                $ing = (string) $row['ingredient'];
+
+                foreach ($dryTriggers as $t) {
+                    if (self::matchesTrigger($ing, $t)) {
                         $dry[$bulk]    = true;
+                        $milled[$bulk] = true;
                         $passes[$bulk] = $dryPasses;
-                        break;
+                        continue 2;   // next ingredient row
+                    }
+                }
+                if (!$milled[$bulk]) {
+                    foreach ($millTriggers as $t) {
+                        if (self::matchesTrigger($ing, $t)) {
+                            $milled[$bulk] = true;   // standard mill, passes stays 1
+                            break;
+                        }
                     }
                 }
             }
         }
 
-        return ['passes' => $passes, 'dry' => $dry];
+        return ['passes' => $passes, 'dry' => $dry, 'milled' => $milled];
     }
 
     /**
