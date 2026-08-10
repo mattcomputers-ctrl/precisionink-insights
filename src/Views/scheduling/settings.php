@@ -253,17 +253,31 @@
         <tbody>
         <?php foreach ($configs as $c): ?>
             <tr>
+                <form method="POST" action="/scheduling/settings/items">
+                <?= csrf_field() ?>
+                <input type="hidden" name="bulk_item_code" value="<?= e($c['bulk_item_code']) ?>">
                 <td><span class="tag"><?= e($c['bulk_item_code']) ?></span></td>
-                <td><?= e(ucwords($c['color'])) ?></td>
-                <td class="text-right"><?= fmt_number((float) $c['batch_size_1'], 0) ?></td>
-                <td class="text-right"><?= $c['batch_size_2'] !== null ? fmt_number((float) $c['batch_size_2'], 0) : '—' ?></td>
+                <td>
+                    <select name="color" style="width:150px;">
+                        <?php foreach ($colors as $col): ?>
+                            <option value="<?= e($col) ?>" <?= $col === $c['color'] ? 'selected' : '' ?>><?= e(ucwords($col)) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </td>
+                <td class="text-right"><input type="number" name="batch_size_1" min="1" step="1"
+                        value="<?= e((string) round((float) $c['batch_size_1'])) ?>" style="width:90px;" required></td>
+                <td class="text-right"><input type="number" name="batch_size_2" min="1" step="1"
+                        value="<?= $c['batch_size_2'] !== null ? e((string) round((float) $c['batch_size_2'])) : '' ?>"
+                        placeholder="—" style="width:90px;"></td>
                 <td class="text-muted"><?= e(fmt_date($c['updated_at'], 'm/d/Y')) ?></td>
-                <td class="text-right">
+                <td class="text-right nowrap">
+                    <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                </form>
                     <form method="POST" action="/scheduling/settings/items/delete" style="display:inline;"
                           onsubmit="return confirm('Remove scheduling config for <?= e(addslashes($c['bulk_item_code'])) ?>?');">
                         <?= csrf_field() ?>
                         <input type="hidden" name="bulk_item_code" value="<?= e($c['bulk_item_code']) ?>">
-                        <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                        <button type="submit" class="btn btn-sm btn-danger">✕</button>
                     </form>
                 </td>
             </tr>
