@@ -173,7 +173,29 @@ Migrations live in `migrations/*.sql`. Tables this app owns:
 
 ---
 
-## 4. How to add a new module / tab
+## 4. Scheduling module — CMS data sources
+
+The Production Scheduling tab reads:
+
+| Source | Used for |
+|---|---|
+| `InventoryTotal` (view, summed across owners per Item) | `QtySOH` on hand · `QtyBooked` open customer demand (OrdDetail contexts UI/SH/KD/UAI, IsOpen=1, non-quote) · `QtyOnOrder` incoming supply incl. **released production** (contexts PK/PKA/PO) · `QtyOpenToSell` = (SOH−unusable)+OnOrder−Booked |
+| `ItemEntity.MinimumStock` where `Context='ST'` | Per-pack minimum stock level (verified: E1055-50 = 50) |
+| `Item.Context='PP'` | Identifies pack items |
+| Pack `CostingRecipe` → `RecipeDetail` `Context='UI'`, ingredient `Unit='lb'`, max QtyReqd | Pack → bulk item resolution (fallback: strip `-suffix` from code) |
+| `ShipmentDetails` trailing 91 days (same returns/void filters as Margin Watchdog) | Popularity ranking (shipped lbs by bulk) for capacity-overflow priority |
+
+Need formula per pack: `need = max(0, MinimumStock − QtyOpenToSell)`;
+**tier 1** when `QtyOpenToSell < 0` (open orders not covered even counting
+released production — released batches count via `QtyOnOrder`, so they
+correctly keep an item out of tier 1).
+
+Local config (MySQL): `sched_mills` (equipment), `sched_item_config`
+(bulk item → color/passes/batch sizes), `settings['sched.color_order']`.
+The full engine algorithm is documented at the top of
+[ScheduleEngine.php](src/Modules/Scheduling/ScheduleEngine.php).
+
+## 5. How to add a new module / tab
 
 The module abstraction lives in `src/Core/Module.php`. To add a tab:
 

@@ -6,6 +6,7 @@ namespace PII\Core;
 
 use PII\Middleware\AuthMiddleware;
 use PII\Modules\MarginWatchdog\MarginWatchdogModule;
+use PII\Modules\Scheduling\SchedulingModule;
 
 /**
  * App — Application bootstrap.
@@ -105,8 +106,8 @@ class App
     {
         $registry = new ModuleRegistry();
         $registry->register(new MarginWatchdogModule());
+        $registry->register(new SchedulingModule());
         // Future tabs go here:
-        //   $registry->register(new ProductionAnalyticsModule());
         //   $registry->register(new ARAgingModule());
         return $registry;
     }

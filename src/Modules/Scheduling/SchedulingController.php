@@ -1,0 +1,248 @@
+<?php
+
+declare(strict_types=1);
+
+namespace PII\Modules\Scheduling;
+
+use PII\Core\App;
+use PII\Core\CMSDatabase;
+use PII\Core\CSRF;
+use PII\Core\Database;
+
+require_once dirname(__DIR__, 2) . '/Helpers/layout.php';
+
+class SchedulingController
+{
+    /* ------------------------------------------------------------------
+     *  Main schedule page
+     * ----------------------------------------------------------------*/
+
+    public function index(): void
+    {
+        $svc = new SchedulingDataService();
+
+        layout('scheduling/index', [
+            'pageTitle' => 'Production Scheduling',
+            'mills'     => $svc->mills(),
+            'hasCms'    => CMSDatabase::isConfigured(),
+        ], 'scheduling');
+    }
+
+    /**
+     * GET /scheduling/generate?week=YYYY-MM-DD&days=1,1,1,1,1,0,0
+     * Returns the generated schedule as JSON (client renders + drag-drops).
+     */
+    public function generate(): void
+    {
+        $week = (string) ($_GET['week'] ?? '');
+        if (!valid_date($week)) {
+            json_response(['error' => 'Invalid week start date'], 400);
+        }
+        // Normalise to the Monday of that week
+        $dow = (int) date('N', strtotime($week));   // 1 = Monday
+        $weekStart = date('Y-m-d', strtotime($week . ' -' . ($dow - 1) . ' day'));
+
+        $daysCsv = (string) ($_GET['days'] ?? '1,1,1,1,1,0,0');
+        $enabledDays = array_map('intval', array_pad(explode(',', $daysCsv), 7, 0));
+
+        if (!CMSDatabase::isConfigured()) {
+            json_response(['error' => 'CMS database not configured'], 500);
+        }
+
+        try {
+            $svc = new SchedulingDataService();
+
+            $mills = $svc->mills();
+            if (empty($mills)) {
+                json_response(['error' => 'No active mills configured. Add equipment in Scheduling → Settings.'], 400);
+            }
+
+            $packPositions = $svc->packPositions();
+            $packToBulk    = $svc->packToBulkMap();
+            $itemConfigs   = $svc->itemConfigs();
+            $popularity    = $svc->popularityByBulk($packToBulk);
+
+            $engine   = new ScheduleEngine($svc->colorOrder());
+            $schedule = $engine->build(
+                $packPositions, $packToBulk, $itemConfigs,
+                $mills, $popularity, $weekStart, $enabledDays
+            );
+
+            Database::getInstance()->insert('audit_log', [
+                'user_id'     => current_user_id(),
+                'entity_type' => 'scheduling',
+                'entity_id'   => $weekStart,
+                'action'      => 'generate',
+                'details'     => json_encode(['days' => $enabledDays]),
+                'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]);
+
+            json_response($schedule);
+        } catch (\Throwable $e) {
+            json_response(['error' => 'Schedule generation failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * POST /scheduling/export — body contains the (possibly drag-drop
+     * edited) schedule JSON; streams the xlsx.
+     */
+    public function export(): void
+    {
+        CSRF::validateRequest();
+
+        $raw = $_POST['schedule'] ?? '';
+        $schedule = json_decode((string) $raw, true);
+        if (!is_array($schedule) || empty($schedule['mills'])) {
+            $_SESSION['_flash']['error'] = 'No schedule to export — generate one first.';
+            redirect('/scheduling');
+        }
+
+        Database::getInstance()->insert('audit_log', [
+            'user_id'     => current_user_id(),
+            'entity_type' => 'scheduling',
+            'entity_id'   => (string) ($schedule['week_start'] ?? ''),
+            'action'      => 'export_excel',
+            'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+
+        (new ScheduleExporter())->stream($schedule, app_name());
+    }
+
+    /* ------------------------------------------------------------------
+     *  Settings
+     * ----------------------------------------------------------------*/
+
+    public function settings(): void
+    {
+        $svc = new SchedulingDataService();
+        $db  = Database::getInstance();
+
+        $configs = $db->fetchAll("SELECT * FROM sched_item_config ORDER BY bulk_item_code");
+
+        layout('scheduling/settings', [
+            'pageTitle'  => 'Scheduling settings',
+            'mills'      => $svc->mills(false),
+            'colorOrder' => $svc->colorOrder(),
+            'colors'     => SchedulingDataService::COLORS,
+            'configs'    => $configs,
+        ], 'scheduling');
+    }
+
+    public function storeMill(): void
+    {
+        CSRF::validateRequest();
+        $this->saveMillFromPost(null);
+        $_SESSION['_flash']['success'] = 'Mill added.';
+        redirect('/scheduling/settings');
+    }
+
+    public function updateMill(string $id): void
+    {
+        CSRF::validateRequest();
+        $this->saveMillFromPost((int) $id);
+        $_SESSION['_flash']['success'] = 'Mill updated.';
+        redirect('/scheduling/settings');
+    }
+
+    public function deleteMill(string $id): void
+    {
+        CSRF::validateRequest();
+        Database::getInstance()->delete('sched_mills', 'id = ?', [(int) $id]);
+        $_SESSION['_flash']['success'] = 'Mill deleted.';
+        redirect('/scheduling/settings');
+    }
+
+    private function saveMillFromPost(?int $id): void
+    {
+        $data = [
+            'name'                => trim((string) ($_POST['name'] ?? '')),
+            'lbs_per_hour'        => (float) ($_POST['lbs_per_hour'] ?? 0),
+            'washup_like_minutes' => (float) ($_POST['washup_like_minutes'] ?? 0),
+            'washup_next_minutes' => (float) ($_POST['washup_next_minutes'] ?? 0),
+            'washup_deep_minutes' => (float) ($_POST['washup_deep_minutes'] ?? 0),
+            'hours_per_day'       => (float) ($_POST['hours_per_day'] ?? 8),
+            'max_batch_lbs'       => (float) ($_POST['max_batch_lbs'] ?? 0),
+            'is_active'           => isset($_POST['is_active']) ? 1 : 0,
+            'sort_order'          => (int) ($_POST['sort_order'] ?? 0),
+        ];
+        if ($data['name'] === '') {
+            $_SESSION['_flash']['error'] = 'Mill name is required.';
+            redirect('/scheduling/settings');
+        }
+
+        $db = Database::getInstance();
+        if ($id === null) {
+            $db->insert('sched_mills', $data);
+        } else {
+            $db->update('sched_mills', $data, 'id = ?', [$id]);
+        }
+    }
+
+    public function saveColorOrder(): void
+    {
+        CSRF::validateRequest();
+        $order = $_POST['color_order'] ?? [];
+        try {
+            (new SchedulingDataService())->saveColorOrder(is_array($order) ? $order : []);
+            $_SESSION['_flash']['success'] = 'Color order saved.';
+        } catch (\Throwable $e) {
+            $_SESSION['_flash']['error'] = $e->getMessage();
+        }
+        redirect('/scheduling/settings');
+    }
+
+    /** GET /scheduling/settings/item-search?q=E10 → JSON matches from CMS */
+    public function itemSearch(): void
+    {
+        $q = trim((string) ($_GET['q'] ?? ''));
+        if (strlen($q) < 2) {
+            json_response([]);
+        }
+        try {
+            json_response((new SchedulingDataService())->searchItems($q));
+        } catch (\Throwable $e) {
+            json_response(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function saveItemConfig(): void
+    {
+        CSRF::validateRequest();
+        $code   = trim((string) ($_POST['bulk_item_code'] ?? ''));
+        $color  = trim((string) ($_POST['color'] ?? ''));
+        $passes = max(1, (int) ($_POST['passes'] ?? 1));
+        $b1     = (float) ($_POST['batch_size_1'] ?? 0);
+        $b2raw  = trim((string) ($_POST['batch_size_2'] ?? ''));
+        $b2     = $b2raw === '' ? null : (float) $b2raw;
+
+        if ($code === '' || $b1 <= 0 || !in_array($color, SchedulingDataService::COLORS, true)) {
+            $_SESSION['_flash']['error'] = 'Item code, a valid color, and a positive primary batch size are required.';
+            redirect('/scheduling/settings');
+        }
+
+        $db = Database::getInstance();
+        $exists = $db->fetch("SELECT 1 FROM sched_item_config WHERE bulk_item_code = ?", [$code]);
+        $data = [
+            'color' => $color, 'passes' => $passes,
+            'batch_size_1' => $b1, 'batch_size_2' => $b2,
+        ];
+        if ($exists) {
+            $db->update('sched_item_config', $data, 'bulk_item_code = ?', [$code]);
+        } else {
+            $db->insert('sched_item_config', array_merge(['bulk_item_code' => $code], $data));
+        }
+
+        $_SESSION['_flash']['success'] = "Scheduling config saved for {$code}.";
+        redirect('/scheduling/settings');
+    }
+
+    public function deleteItemConfig(): void
+    {
+        CSRF::validateRequest();
+        $code = trim((string) ($_POST['bulk_item_code'] ?? ''));
+        Database::getInstance()->delete('sched_item_config', 'bulk_item_code = ?', [$code]);
+        $_SESSION['_flash']['success'] = "Config removed for {$code}.";
+        redirect('/scheduling/settings');
+    }
+}
