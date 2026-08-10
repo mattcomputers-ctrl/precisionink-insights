@@ -21,6 +21,17 @@ fail() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 [ -d "$INSTALL_DIR" ] || fail "Install dir not found: $INSTALL_DIR"
 [ -d "$INSTALL_DIR/.git" ] || fail "Not a git checkout: $INSTALL_DIR"
 
+# Self-relocate: git reset --hard below swaps THIS FILE mid-run. Bash keeps
+# reading the old inode, so the remainder of the run would execute stale
+# code — a new fix in update.sh would never run on the very update that
+# delivers it. Re-exec from a temp copy so a run is one consistent version.
+if [ -z "${PII_UPDATE_RELOCATED:-}" ]; then
+    TMP_SELF=$(mktemp /tmp/pii-update.XXXXXX.sh)
+    cp "$0" "$TMP_SELF"
+    PII_UPDATE_RELOCATED="$TMP_SELF" exec bash "$TMP_SELF" "$@"
+fi
+trap 'rm -f "$PII_UPDATE_RELOCATED"' EXIT
+
 # 1. Pull (reset --hard so chmod-induced mode drift never blocks the pull)
 say "Fetching origin/main..."
 sudo -u www-data git -C "$INSTALL_DIR" fetch --quiet origin main
@@ -28,15 +39,18 @@ sudo -u www-data git -C "$INSTALL_DIR" fetch --quiet origin main
 OLD=$(sudo -u www-data git -C "$INSTALL_DIR" rev-parse HEAD)
 NEW=$(sudo -u www-data git -C "$INSTALL_DIR" rev-parse origin/main)
 if [ "$OLD" = "$NEW" ]; then
-    say "Already at $(echo $NEW | cut -c1-7) — nothing to update."
-    exit 0
+    # Code is current, but DON'T exit — the maintenance steps below
+    # (permissions, logrotate, cron entry, migrations) must still run so
+    # "run update.sh" always repairs machine state, not just code drift.
+    say "Already at $(echo $NEW | cut -c1-7) — code current; running maintenance steps."
+    CHANGED=""
+else
+    say "Updating $(echo $OLD | cut -c1-7) → $(echo $NEW | cut -c1-7)"
+    sudo -u www-data git -C "$INSTALL_DIR" reset --hard origin/main --quiet
+    CHANGED=$(sudo -u www-data git -C "$INSTALL_DIR" diff --name-only "$OLD" "$NEW")
 fi
 
-say "Updating $(echo $OLD | cut -c1-7) → $(echo $NEW | cut -c1-7)"
-sudo -u www-data git -C "$INSTALL_DIR" reset --hard origin/main --quiet
-
 # 2. Composer (only if composer.json or composer.lock changed)
-CHANGED=$(sudo -u www-data git -C "$INSTALL_DIR" diff --name-only "$OLD" "$NEW")
 if echo "$CHANGED" | grep -qE '^composer\.(json|lock)$'; then
     say "composer.json/lock changed — running composer install..."
     sudo -u www-data composer install -d "$INSTALL_DIR" --no-dev -o --quiet
