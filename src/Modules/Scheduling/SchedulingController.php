@@ -221,6 +221,7 @@ class SchedulingController
             'washup_deep_minutes' => (float) ($_POST['washup_deep_minutes'] ?? 0),
             'hours_per_day'       => (float) ($_POST['hours_per_day'] ?? 8),
             'max_batch_lbs'       => (float) ($_POST['max_batch_lbs'] ?? 0),
+            'dry_grind_capable'   => isset($_POST['dry_grind_capable']) ? 1 : 0,
             'is_active'           => isset($_POST['is_active']) ? 1 : 0,
             'sort_order'          => (int) ($_POST['sort_order'] ?? 0),
         ];

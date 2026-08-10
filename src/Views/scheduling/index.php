@@ -157,11 +157,12 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         if ((schedule.unscheduled || []).length > 0) {
             uh += '<div class="card"><div class="card-header"><h2 class="card-title">Unscheduled — didn\'t fit this week</h2>';
             uh += '<span class="text-muted" style="font-size:0.8rem;">most popular first</span></div>';
-            uh += '<table class="table"><thead><tr><th>Item</th><th>Color</th><th class="text-right">Lbs</th><th>Priority</th><th class="text-right">91-day lbs sold</th></tr></thead><tbody>';
+            uh += '<table class="table"><thead><tr><th>Item</th><th>Color</th><th class="text-right">Lbs</th><th>Priority</th><th>Why unscheduled</th><th class="text-right">91-day lbs sold</th></tr></thead><tbody>';
             schedule.unscheduled.forEach(u => {
-                uh += '<tr><td><strong>' + esc(u.bulk) + '</strong></td><td>' + esc(u.color) + '</td>';
+                uh += '<tr><td><strong>' + esc(u.bulk) + '</strong>' + (u.dry_grind ? ' <span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);">DG</span>' : '') + '</td><td>' + esc(u.color) + '</td>';
                 uh += '<td class="text-right">' + Number(u.lbs).toLocaleString() + '</td>';
                 uh += '<td>' + (u.tier1 ? '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);">ORDER SHORTFALL</span>' : '<span class="pill">below min</span>') + '</td>';
+                uh += '<td class="text-muted">' + esc(u.reason || '') + '</td>';
                 uh += '<td class="text-right">' + Number(u.popularity).toLocaleString() + '</td></tr>';
             });
             uh += '</tbody></table></div>';
@@ -181,6 +182,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         let badge = '';
         if (run.carryover) badge = '<span class="pill" style="background:rgba(241,196,15,0.2);color:var(--warn);margin-left:0.3rem;">carryover</span>';
         else if (run.tier1) badge = '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);margin-left:0.3rem;">shortfall</span>';
+        if (run.dry_grind && !run.carryover) badge += '<span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);margin-left:0.3rem;" title="Dry grind — only runs on dry-grind-capable mills">DG</span>';
 
         let packs = (run.pack_breakdown || []).map(p => esc(p.pack) + ': ' + Number(p.lbs).toLocaleString() + ' lbs').join(' · ');
         let batchLabel = run.batch_count > 1 ? ' <span class="text-dim">(' + run.batch_no + '/' + run.batch_count + ')</span>' : '';

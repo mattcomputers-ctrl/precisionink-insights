@@ -30,6 +30,7 @@
                 <th>Name</th><th class="text-right">Lbs/hr</th>
                 <th class="text-right">Washup like (min)</th><th class="text-right">Washup next (min)</th><th class="text-right">Washup deep (min)</th>
                 <th class="text-right">Hours/day</th><th class="text-right">Max batch (lbs)</th>
+                <th title="Can this mill run dry-grind inks?">Dry grind</th>
                 <th>Active</th><th></th>
             </tr>
         </thead>
@@ -45,6 +46,7 @@
                 <td class="text-right"><input type="number" step="1" name="washup_deep_minutes" value="<?= e((string) $m['washup_deep_minutes']) ?>" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="0.5" name="hours_per_day" value="<?= e((string) $m['hours_per_day']) ?>" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="1" name="max_batch_lbs" value="<?= e((string) $m['max_batch_lbs']) ?>" style="width:90px;" title="0 = unlimited"></td>
+                <td><input type="checkbox" name="dry_grind_capable" value="1" <?= !empty($m['dry_grind_capable']) ? 'checked' : '' ?>></td>
                 <td><input type="checkbox" name="is_active" value="1" <?= $m['is_active'] ? 'checked' : '' ?>></td>
                 <td class="nowrap">
                     <input type="hidden" name="sort_order" value="<?= (int) $m['sort_order'] ?>">
@@ -68,6 +70,7 @@
                 <td class="text-right"><input type="number" step="1" name="washup_deep_minutes" placeholder="min" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="0.5" name="hours_per_day" value="8" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="1" name="max_batch_lbs" value="0" style="width:90px;" title="0 = unlimited"></td>
+                <td><input type="checkbox" name="dry_grind_capable" value="1" checked></td>
                 <td><input type="checkbox" name="is_active" value="1" checked></td>
                 <td><button type="submit" class="btn btn-sm btn-primary">+ Add</button></td>
                 </form>

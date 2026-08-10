@@ -79,10 +79,14 @@ class ScheduleExporter
                         $label .= '  ⟵ CARRYOVER (continued from previous day)';
                     }
 
+                    $colorCell = strtoupper((string) $run['color']);
+                    if (!empty($run['dry_grind'])) {
+                        $colorCell .= '  (DRY GRIND)';
+                    }
                     $sheet->setCellValue("A{$r}", $n);
                     $sheet->setCellValue("B{$r}", $label);
                     $sheet->setCellValue("C{$r}", $desc);
-                    $sheet->setCellValue("D{$r}", strtoupper((string) $run['color']));
+                    $sheet->setCellValue("D{$r}", $colorCell);
                     $sheet->setCellValue("E{$r}", !empty($run['carryover']) ? '' : (float) $run['lbs']);
                     $sheet->setCellValue("F{$r}", implode(' · ', $packParts));
 
@@ -111,26 +115,29 @@ class ScheduleExporter
             $sheet->setTitle('Unscheduled');
             $sheet->setCellValue('A1', 'Could not fit this week — most popular first');
             $sheet->getStyle('A1')->getFont()->setBold(true);
-            $headers = ['Item', 'Color', 'Lbs', 'Priority', 'Trailing 91d lbs sold', 'Pack Breakdown'];
+            $headers = ['Item', 'Color', 'Lbs', 'Priority', 'Why unscheduled', 'Trailing 91d lbs sold', 'Pack Breakdown'];
             foreach ($headers as $i => $h) {
                 $sheet->setCellValue([$i + 1, 2], $h);
             }
-            $sheet->getStyle('A2:F2')->getFont()->setBold(true);
+            $sheet->getStyle('A2:G2')->getFont()->setBold(true);
             $r = 3;
             foreach ($schedule['unscheduled'] as $u) {
                 $packParts = [];
                 foreach ($u['pack_breakdown'] ?? [] as $pk) {
                     $packParts[] = $pk['pack'] . ': ' . number_format((float) $pk['lbs'], 0) . ' lbs';
                 }
+                $colorCell = strtoupper((string) $u['color']);
+                if (!empty($u['dry_grind'])) $colorCell .= '  (DRY GRIND)';
                 $sheet->setCellValue("A{$r}", $u['bulk']);
-                $sheet->setCellValue("B{$r}", strtoupper((string) $u['color']));
+                $sheet->setCellValue("B{$r}", $colorCell);
                 $sheet->setCellValue("C{$r}", (float) $u['lbs']);
                 $sheet->setCellValue("D{$r}", !empty($u['tier1']) ? 'ORDER SHORTFALL' : 'Below min');
-                $sheet->setCellValue("E{$r}", (float) ($u['popularity'] ?? 0));
-                $sheet->setCellValue("F{$r}", implode(' · ', $packParts));
+                $sheet->setCellValue("E{$r}", (string) ($u['reason'] ?? ''));
+                $sheet->setCellValue("F{$r}", (float) ($u['popularity'] ?? 0));
+                $sheet->setCellValue("G{$r}", implode(' · ', $packParts));
                 $r++;
             }
-            foreach (range('A', 'F') as $col) {
+            foreach (range('A', 'G') as $col) {
                 $sheet->getColumnDimension($col)->setAutoSize(true);
             }
         }

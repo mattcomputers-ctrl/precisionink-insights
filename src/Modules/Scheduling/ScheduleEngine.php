@@ -237,6 +237,7 @@ class ScheduleEngine
         foreach ($sequence as $batch) {
             $placed = $this->placeBatch($batch, $millState, $days);
             if (!$placed) {
+                $batch['reason'] = $this->unscheduledReason($batch, $mills);
                 $unscheduled[] = $batch;
             }
         }
@@ -276,6 +277,8 @@ class ScheduleEngine
             'unscheduled' => array_map(fn($b) => [
                 'bulk' => $b['bulk'], 'lbs' => $b['lbs'], 'color' => $b['color'],
                 'tier1' => $b['tier1'], 'popularity' => round($b['popularity']),
+                'dry_grind' => $b['dry_grind'] ?? false,
+                'reason' => $b['reason'] ?? 'no capacity this week',
                 'pack_breakdown' => $b['pack_breakdown'],
             ], $unscheduled),
             'warnings'    => $warnings,
@@ -293,6 +296,9 @@ class ScheduleEngine
 
         foreach ($millState as $millId => $st) {
             $m = $st['mill'];
+            if (!empty($batch['dry_grind']) && empty($m['dry_grind_capable'])) {
+                continue;   // dry-grind ink on a mill that can't dry grind
+            }
             if ((float) $m['max_batch_lbs'] > 0 && $batch['lbs'] > (float) $m['max_batch_lbs']) {
                 continue;   // batch too big for this mill
             }
@@ -375,6 +381,25 @@ class ScheduleEngine
         $st['last_color'] = $batch['color_idx'];
         unset($st);
         return true;
+    }
+
+    /** Why couldn't this batch place anywhere — for the Unscheduled report. */
+    private function unscheduledReason(array $batch, array $mills): string
+    {
+        $eligible = array_filter($mills, function ($m) use ($batch) {
+            if (!empty($batch['dry_grind']) && empty($m['dry_grind_capable'])) return false;
+            return true;
+        });
+        if (empty($eligible)) {
+            return 'no dry-grind-capable mill';
+        }
+        $fitsSize = array_filter($eligible, fn($m) =>
+            (float) $m['max_batch_lbs'] <= 0 || $batch['lbs'] <= (float) $m['max_batch_lbs']
+        );
+        if (empty($fitsSize)) {
+            return 'exceeds max batch size of every eligible mill';
+        }
+        return 'no capacity this week';
     }
 
     /** 'like' | 'next' | 'deep' | 'none' (first run of week on the mill) */
