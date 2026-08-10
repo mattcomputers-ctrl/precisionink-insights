@@ -72,6 +72,7 @@ class ScheduleEngine
      * @param list<int> $enabledDays       7 flags Mon..Sun (1 = run)
      * @param array<string,int> $passesByBulk   derived (dry-grind) passes; absent = 1
      * @param array<string,bool> $dryByBulk     derived dry-grind flag (display only)
+     * @param array<string,string> $bulkDescriptions  bulk → Item.Description
      */
     public function build(
         array $packPositions,
@@ -82,7 +83,8 @@ class ScheduleEngine
         string $weekStart,
         array $enabledDays,
         array $passesByBulk = [],
-        array $dryByBulk = []
+        array $dryByBulk = [],
+        array $bulkDescriptions = []
     ): array {
         $warnings = [];
 
@@ -165,6 +167,7 @@ class ScheduleEngine
                 $batches[] = [
                     'id'         => $bulk . '#' . ($i + 1),
                     'bulk'       => $bulk,
+                    'description'=> $bulkDescriptions[$bulk] ?? '',
                     'batch_no'   => $i + 1,
                     'batch_count'=> count($batchLbsList),
                     'color'      => $cfg['color'],
@@ -279,6 +282,7 @@ class ScheduleEngine
             'mills'       => $millsOut,
             'unscheduled' => array_map(fn($b) => [
                 'bulk' => $b['bulk'], 'lbs' => $b['lbs'], 'color' => $b['color'],
+                'description' => $b['description'] ?? '',
                 'tier1' => $b['tier1'], 'popularity' => round($b['popularity']),
                 'dry_grind' => $b['dry_grind'] ?? false,
                 'reason' => $b['reason'] ?? 'no capacity this week',
@@ -370,6 +374,7 @@ class ScheduleEngine
             $st['runs'][$e][] = [
                 'run_id'         => $batch['id'],
                 'bulk'           => $batch['bulk'],
+                'description'    => $batch['description'] ?? '',
                 'batch_no'       => $batch['batch_no'],
                 'batch_count'    => $batch['batch_count'],
                 'color'          => $batch['color'],

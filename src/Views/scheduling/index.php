@@ -157,9 +157,10 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         if ((schedule.unscheduled || []).length > 0) {
             uh += '<div class="card"><div class="card-header"><h2 class="card-title">Unscheduled — didn\'t fit this week</h2>';
             uh += '<span class="text-muted" style="font-size:0.8rem;">most popular first</span></div>';
-            uh += '<table class="table"><thead><tr><th>Item</th><th>Color</th><th class="text-right">Lbs</th><th>Priority</th><th>Why unscheduled</th><th class="text-right">91-day lbs sold</th></tr></thead><tbody>';
+            uh += '<table class="table"><thead><tr><th>Item</th><th>Description</th><th>Color</th><th class="text-right">Lbs</th><th>Priority</th><th>Why unscheduled</th><th class="text-right">91-day lbs sold</th></tr></thead><tbody>';
             schedule.unscheduled.forEach(u => {
-                uh += '<tr><td><strong>' + esc(u.bulk) + '</strong>' + (u.dry_grind ? ' <span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);">DG</span>' : '') + '</td><td>' + esc(u.color) + '</td>';
+                uh += '<tr><td><strong>' + esc(u.bulk) + '</strong>' + (u.dry_grind ? ' <span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);">DG</span>' : '') + '</td>';
+                uh += '<td class="text-muted">' + esc(u.description || '') + '</td><td>' + esc(u.color) + '</td>';
                 uh += '<td class="text-right">' + Number(u.lbs).toLocaleString() + '</td>';
                 uh += '<td>' + (u.tier1 ? '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);">ORDER SHORTFALL</span>' : '<span class="pill">below min</span>') + '</td>';
                 uh += '<td class="text-muted">' + esc(u.reason || '') + '</td>';
@@ -190,6 +191,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         return '<div class="sched-run" draggable="true" data-mill="' + mi + '" data-day="' + di + '" data-run="' + ri + '" ' +
             'style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:0.5rem 0.6rem;margin-bottom:0.45rem;cursor:grab;">' +
             '<div style="font-weight:600;font-size:0.85rem;">' + colorDot + esc(run.bulk) + batchLabel + badge + '</div>' +
+            (run.description ? '<div class="text-muted" style="font-size:0.72rem;">' + esc(run.description) + '</div>' : '') +
             (run.carryover ? '<div class="text-dim" style="font-size:0.72rem;">continues previous day\'s batch</div>'
                            : '<div class="text-muted" style="font-size:0.75rem;">' + Number(run.lbs).toLocaleString() + ' lbs · ' + esc(run.color) + '</div>' +
                              '<div class="text-dim" style="font-size:0.7rem;margin-top:0.2rem;">' + packs + '</div>') +

@@ -92,15 +92,15 @@ class SchedulingDataService
     /**
      * Pack → bulk item map for every PP item, via the pack recipe's main
      * lb-unit UI ingredient. Falls back to code-prefix (E1055-50 → E1055)
-     * when the recipe is missing.
+     * when the recipe is missing. Also returns bulk item descriptions.
      *
-     * @return array<string, string>  pack ItemCode → bulk ItemCode
+     * @return array{map: array<string,string>, descriptions: array<string,string>}
      */
     public function packToBulkMap(): array
     {
         // NOTE: 'bulk' is a reserved T-SQL keyword (BULK INSERT) — alias as b.
         $sql = "
-            SELECT pack.ItemCode AS pack, b.ItemCode AS bulk_code, rd.QtyReqd
+            SELECT pack.ItemCode AS pack, b.ItemCode AS bulk_code, b.Description AS bulk_desc, rd.QtyReqd
               FROM CMS.dbo.Item pack
               JOIN CMS.dbo.Recipe r        ON r.Recipe  = pack.CostingRecipe
               JOIN CMS.dbo.RecipeDetail rd ON rd.Recipe = r.Recipe AND rd.Context = 'UI'
@@ -112,19 +112,21 @@ class SchedulingDataService
 
         // Keep the ingredient with the largest QtyReqd per pack (the base ink ≈ 1.0/lb)
         $best = [];
+        $descriptions = [];
         foreach ($rows as $r) {
             $p = (string) $r['pack'];
             $q = (float)  $r['QtyReqd'];
             if (!isset($best[$p]) || $q > $best[$p]['qty']) {
                 $best[$p] = ['bulk' => (string) $r['bulk_code'], 'qty' => $q];
             }
+            $descriptions[(string) $r['bulk_code']] = (string) ($r['bulk_desc'] ?? '');
         }
 
         $map = [];
         foreach ($best as $pack => $b) {
             $map[$pack] = $b['bulk'];
         }
-        return $map;
+        return ['map' => $map, 'descriptions' => $descriptions];
     }
 
     /** Code-prefix fallback: E1055-50 → E1055. Returns null when no dash. */

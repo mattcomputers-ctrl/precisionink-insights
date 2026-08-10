@@ -58,7 +58,9 @@ class SchedulingController
             }
 
             $packPositions = $svc->packPositions();
-            $packToBulk    = $svc->packToBulkMap();
+            $ptb           = $svc->packToBulkMap();
+            $packToBulk    = $ptb['map'];
+            $bulkDescs     = $ptb['descriptions'];
             $itemConfigs   = $svc->itemConfigs();
             $popularity    = $svc->popularityByBulk($packToBulk);
 
@@ -70,7 +72,7 @@ class SchedulingController
             $schedule = $engine->build(
                 $packPositions, $packToBulk, $itemConfigs,
                 $mills, $popularity, $weekStart, $enabledDays,
-                $derived['passes'], $derived['dry']
+                $derived['passes'], $derived['dry'], $bulkDescs
             );
 
             Database::getInstance()->insert('audit_log', [
