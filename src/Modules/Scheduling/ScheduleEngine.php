@@ -29,7 +29,10 @@ namespace PII\Modules\Scheduling;
  *
  * 4. SEQUENCE: tier-1 batches first (sorted by color ladder among
  *    themselves — they all must run, so we still minimise washups),
- *    then tier-2 batches in ladder order. When capacity runs out,
+ *    then tier-2 batches in ladder order. Within each tier, DRY-GRIND
+ *    batches place before standard ones: dry work only runs on capable
+ *    mills, so those mills focus on dry grinding while any remains and
+ *    standard work fills the leftover capacity. When capacity runs out,
  *    tier-2 items are dropped least-popular-first (trailing-91-day
  *    shipped lbs) and reported as unscheduled.
  *
@@ -202,16 +205,31 @@ class ScheduleEngine
         unset($b);
 
         // ── 4. sequence ────────────────────────────────────────────────
-        $tier1Batches = array_values(array_filter($batches, fn($b) => $b['tier1']));
-        $tier2Batches = array_values(array_filter($batches, fn($b) => !$b['tier1']));
-
+        // Within each priority tier, DRY-GRIND batches place first: dry
+        // work can only run on capable mills, so those mills must load up
+        // on it while any remains — otherwise ladder-earlier standard
+        // batches would eat their hours and strand dry grinds in
+        // Unscheduled. Standard work then fills remaining capacity
+        // anywhere. Each partition is still ladder-sorted.
         $ladderSort = function (array $a, array $b): int {
             return [$a['color_idx'], $a['bulk'], $a['batch_no']] <=> [$b['color_idx'], $b['bulk'], $b['batch_no']];
         };
-        usort($tier1Batches, $ladderSort);
-        usort($tier2Batches, $ladderSort);
 
-        $sequence = array_merge($tier1Batches, $tier2Batches);
+        $partition = function (bool $tier1, bool $dry) use ($batches, $ladderSort): array {
+            $part = array_values(array_filter(
+                $batches,
+                fn($b) => $b['tier1'] === $tier1 && (bool) ($b['dry_grind'] ?? false) === $dry
+            ));
+            usort($part, $ladderSort);
+            return $part;
+        };
+
+        $sequence = array_merge(
+            $partition(true,  true),   // tier-1 dry grind
+            $partition(true,  false),  // tier-1 standard
+            $partition(false, true),   // tier-2 dry grind
+            $partition(false, false)   // tier-2 standard
+        );
 
         // ── 5. placement ───────────────────────────────────────────────
         $days = [];
