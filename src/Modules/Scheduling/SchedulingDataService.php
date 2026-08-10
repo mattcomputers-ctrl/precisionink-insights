@@ -98,14 +98,15 @@ class SchedulingDataService
      */
     public function packToBulkMap(): array
     {
+        // NOTE: 'bulk' is a reserved T-SQL keyword (BULK INSERT) — alias as b.
         $sql = "
-            SELECT pack.ItemCode AS pack, bulk.ItemCode AS bulk, rd.QtyReqd
+            SELECT pack.ItemCode AS pack, b.ItemCode AS bulk_code, rd.QtyReqd
               FROM CMS.dbo.Item pack
               JOIN CMS.dbo.Recipe r        ON r.Recipe  = pack.CostingRecipe
               JOIN CMS.dbo.RecipeDetail rd ON rd.Recipe = r.Recipe AND rd.Context = 'UI'
-              JOIN CMS.dbo.Item bulk       ON bulk.Item = rd.Item
+              JOIN CMS.dbo.Item b          ON b.Item = rd.Item
              WHERE pack.Context = 'PP'
-               AND bulk.Unit = 'lb'
+               AND b.Unit = 'lb'
         ";
         $rows = $this->cms->fetchAll($sql);
 
@@ -115,7 +116,7 @@ class SchedulingDataService
             $p = (string) $r['pack'];
             $q = (float)  $r['QtyReqd'];
             if (!isset($best[$p]) || $q > $best[$p]['qty']) {
-                $best[$p] = ['bulk' => (string) $r['bulk'], 'qty' => $q];
+                $best[$p] = ['bulk' => (string) $r['bulk_code'], 'qty' => $q];
             }
         }
 
