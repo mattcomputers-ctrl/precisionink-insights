@@ -184,6 +184,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         if (run.carryover) badge = '<span class="pill" style="background:rgba(241,196,15,0.2);color:var(--warn);margin-left:0.3rem;">carryover</span>';
         else if (run.tier1) badge = '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);margin-left:0.3rem;">shortfall</span>';
         if (run.dry_grind && !run.carryover) badge += '<span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);margin-left:0.3rem;" title="Dry grind — only runs on dry-grind-capable mills">DG</span>';
+        if (run.mto && !run.carryover) badge += '<span class="pill" style="background:rgba(46,204,113,0.18);color:var(--good);margin-left:0.3rem;" title="Made to order — exact quantity for open orders, no stock build">MTO</span>';
 
         let packs = (run.pack_breakdown || []).map(p => esc(p.pack) + ': ' + Number(p.lbs).toLocaleString() + ' lbs').join(' · ');
         let batchLabel = run.batch_count > 1 ? ' <span class="text-dim">(' + run.batch_no + '/' + run.batch_count + ')</span>' : '';

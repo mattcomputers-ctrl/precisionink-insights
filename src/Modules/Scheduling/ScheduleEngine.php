@@ -22,10 +22,14 @@ namespace PII\Modules\Scheduling;
  * 2. AGGREGATE to bulk item (recipe map). A bulk is tier 1 if any of its
  *    packs is tier 1. Packs with need but no bulk config → warnings list.
  *
- * 3. BATCHES: cover bulk need_lbs with standard batch sizes (greedy:
- *    fill with size1 (larger) while remaining > size1; finish with the
- *    smallest standard size that covers the remainder). Always whole
- *    standard batches — rounding UP into stock is intended.
+ * 3. BATCHES: make-to-stock bulks (any needy pack has a min stock)
+ *    cover need_lbs with whole standard batch sizes (greedy: fill with
+ *    the larger size while remaining exceeds it; finish with the
+ *    smallest standard size that covers the remainder — rounding UP
+ *    into stock is intended for stocked items). MAKE-TO-ORDER bulks
+ *    (no needy pack has a min stock) schedule the EXACT needed lbs,
+ *    chunked at the largest standard size — no overproduction into
+ *    stock nobody ordered. MTO runs are flagged on the schedule.
  *
  * 4. SEQUENCE: tier-1 batches first (sorted by color ladder among
  *    themselves — they all must run, so we still minimise washups),
@@ -95,12 +99,17 @@ class ScheduleEngine
         $warnings = [];
 
         // ── 1+2. need per pack → aggregate to bulk ─────────────────────
-        $bulkNeeds = [];   // bulk => {need_lbs, tier, packs:[{pack,desc,need_lbs}], desc}
+        // Packs WITH a minimum stock are make-to-stock: need tops them
+        // back up to min. Packs WITHOUT one are MAKE-TO-ORDER: need only
+        // arises when open orders exceed stock+production, and only for
+        // the shortfall amount.
+        $bulkNeeds = [];   // bulk => {need_lbs, tier, all_mto, packs:[...]}
         foreach ($packPositions as $p) {
             $needLbs = max(0.0, $p['min_stock'] - $p['open_to_sell']);
             if ($needLbs <= 0) continue;
 
             $tier1 = $p['open_to_sell'] < 0;
+            $mto   = $p['min_stock'] <= 0;   // no min stock = made to order
             $bulk  = $packToBulk[$p['pack']] ?? SchedulingDataService::bulkFromCode($p['pack']);
             if ($bulk === null) {
                 $warnings[] = "Pack {$p['pack']} has need ({$needLbs} lbs) but no bulk item could be resolved — skipped.";
@@ -112,11 +121,12 @@ class ScheduleEngine
 
             if (!isset($bulkNeeds[$bulk])) {
                 $bulkNeeds[$bulk] = [
-                    'bulk' => $bulk, 'need_lbs' => 0.0, 'tier1' => false, 'packs' => [],
+                    'bulk' => $bulk, 'need_lbs' => 0.0, 'tier1' => false, 'all_mto' => true, 'packs' => [],
                 ];
             }
             $bulkNeeds[$bulk]['need_lbs'] += $needLbs;
             $bulkNeeds[$bulk]['tier1']     = $bulkNeeds[$bulk]['tier1'] || $tier1;
+            $bulkNeeds[$bulk]['all_mto']   = $bulkNeeds[$bulk]['all_mto'] && $mto;
             $bulkNeeds[$bulk]['packs'][]   = [
                 'pack'        => $p['pack'],
                 'description' => $p['description'],
@@ -144,25 +154,35 @@ class ScheduleEngine
             $sizes = [$cfg['batch_size_1']];
             if (!empty($cfg['batch_size_2'])) $sizes[] = (float) $cfg['batch_size_2'];
             rsort($sizes);                       // sizes[0] = largest
-            $small = min($sizes);
 
             $batchLbsList = [];
             $remaining = $bn['need_lbs'];
-            while ($remaining > 1e-9) {
-                if ($remaining > $sizes[0]) {
-                    $batchLbsList[] = $sizes[0];
-                    $remaining -= $sizes[0];
-                } else {
-                    // Smallest standard size that covers the remainder
-                    $chosen = $sizes[0];
-                    foreach ($sizes as $s) {
-                        if ($s >= $remaining && $s <= $chosen) $chosen = $s;
+            if (!empty($bn['all_mto'])) {
+                // MAKE-TO-ORDER: schedule the exact needed quantity — no
+                // rounding up into stock nobody asked for. Chunk at the
+                // largest standard batch size; the last chunk is exact.
+                while ($remaining > 1e-9) {
+                    $chunk = min($remaining, $sizes[0]);
+                    $batchLbsList[] = round($chunk, 1);
+                    $remaining -= $chunk;
+                }
+            } else {
+                // Make-to-stock: whole standard batches, rounding UP —
+                // overshoot builds stock for a stocked item, which is fine.
+                while ($remaining > 1e-9) {
+                    if ($remaining > $sizes[0]) {
+                        $batchLbsList[] = $sizes[0];
+                        $remaining -= $sizes[0];
+                    } else {
+                        // Smallest standard size that covers the remainder
+                        $chosen = $sizes[0];
+                        foreach ($sizes as $s) {
+                            if ($s >= $remaining && $s <= $chosen) $chosen = $s;
+                        }
+                        if ($chosen < $remaining) $chosen = $sizes[0];
+                        $batchLbsList[] = $chosen;
+                        $remaining = 0.0;
                     }
-                    // If even the smallest doesn't cover it, smallest still rounds up past need? no —
-                    // smallest may be < remaining when remaining ≤ sizes[0]; guard:
-                    if ($chosen < $remaining) $chosen = $sizes[0];
-                    $batchLbsList[] = $chosen;
-                    $remaining = 0.0;
                 }
             }
 
@@ -180,6 +200,7 @@ class ScheduleEngine
                     'color_idx'  => $this->colorIndex[$cfg['color']],
                     'passes'     => max(1, (int) ($passesByBulk[$bulk] ?? 1)),
                     'dry_grind'  => (bool) ($dryByBulk[$bulk] ?? false),
+                    'mto'        => !empty($bn['all_mto']),
                     'lbs'        => $lbs,
                     'tier1'      => $bn['tier1'],
                     'popularity' => $popularity[$bulk] ?? 0.0,
@@ -306,6 +327,7 @@ class ScheduleEngine
                 'description' => $b['description'] ?? '',
                 'tier1' => $b['tier1'], 'popularity' => round($b['popularity']),
                 'dry_grind' => $b['dry_grind'] ?? false,
+                'mto' => $b['mto'] ?? false,
                 'reason' => $b['reason'] ?? 'no capacity this week',
                 'pack_breakdown' => $b['pack_breakdown'],
             ], $unscheduled),
@@ -409,6 +431,7 @@ class ScheduleEngine
                 'lbs'            => $batch['lbs'],
                 'passes'         => $batch['passes'],
                 'dry_grind'      => $batch['dry_grind'] ?? false,
+                'mto'            => $batch['mto'] ?? false,
                 'tier1'          => $batch['tier1'],
                 'carryover'      => !$first,
                 'washup'         => $first ? $best['wash_tier'] : null,

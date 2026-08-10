@@ -77,6 +77,9 @@ class ScheduleExporter
                     if (($run['batch_count'] ?? 1) > 1) {
                         $label .= ' (batch ' . $run['batch_no'] . '/' . $run['batch_count'] . ')';
                     }
+                    if (!empty($run['mto'])) {
+                        $label .= '  [MTO]';
+                    }
                     if (!empty($run['carryover'])) {
                         $label .= '  ⟵ CARRYOVER (continued from previous day)';
                     }
