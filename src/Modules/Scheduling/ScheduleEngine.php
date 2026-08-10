@@ -302,7 +302,10 @@ class ScheduleEngine
             if ((float) $m['max_batch_lbs'] > 0 && $batch['lbs'] > (float) $m['max_batch_lbs']) {
                 continue;   // batch too big for this mill
             }
-            $rate = (float) $m['lbs_per_hour'];
+            // Mode-specific throughput: dry grinding runs at its own rate
+            $rate = !empty($batch['dry_grind'])
+                ? (float) ($m['lbs_per_hour_dry'] ?? 0)
+                : (float) $m['lbs_per_hour'];
             if ($rate <= 0) continue;
 
             // Washup before this batch on this mill
@@ -387,11 +390,18 @@ class ScheduleEngine
     private function unscheduledReason(array $batch, array $mills): string
     {
         $eligible = array_filter($mills, function ($m) use ($batch) {
-            if (!empty($batch['dry_grind']) && empty($m['dry_grind_capable'])) return false;
+            if (!empty($batch['dry_grind'])) {
+                if (empty($m['dry_grind_capable'])) return false;
+                if ((float) ($m['lbs_per_hour_dry'] ?? 0) <= 0) return false;
+            } elseif ((float) $m['lbs_per_hour'] <= 0) {
+                return false;
+            }
             return true;
         });
         if (empty($eligible)) {
-            return 'no dry-grind-capable mill';
+            return !empty($batch['dry_grind'])
+                ? 'no dry-grind-capable mill (or dry rate not set)'
+                : 'no mill with a usable throughput rate';
         }
         $fitsSize = array_filter($eligible, fn($m) =>
             (float) $m['max_batch_lbs'] <= 0 || $batch['lbs'] <= (float) $m['max_batch_lbs']

@@ -216,6 +216,7 @@ class SchedulingController
         $data = [
             'name'                => trim((string) ($_POST['name'] ?? '')),
             'lbs_per_hour'        => (float) ($_POST['lbs_per_hour'] ?? 0),
+            'lbs_per_hour_dry'    => (float) ($_POST['lbs_per_hour_dry'] ?? 0),
             'washup_like_minutes' => (float) ($_POST['washup_like_minutes'] ?? 0),
             'washup_next_minutes' => (float) ($_POST['washup_next_minutes'] ?? 0),
             'washup_deep_minutes' => (float) ($_POST['washup_deep_minutes'] ?? 0),

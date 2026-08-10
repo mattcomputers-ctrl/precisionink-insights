@@ -27,7 +27,9 @@
     <table class="table">
         <thead>
             <tr>
-                <th>Name</th><th class="text-right">Lbs/hr</th>
+                <th>Name</th>
+                <th class="text-right" title="Standard (non-dry-grind) throughput">Lbs/hr std</th>
+                <th class="text-right" title="Throughput while dry grinding">Lbs/hr dry</th>
                 <th class="text-right">Washup like (min)</th><th class="text-right">Washup next (min)</th><th class="text-right">Washup deep (min)</th>
                 <th class="text-right">Hours/day</th><th class="text-right">Max batch (lbs)</th>
                 <th title="Can this mill run dry-grind inks?">Dry grind</th>
@@ -41,6 +43,7 @@
                 <?= csrf_field() ?>
                 <td><input type="text" name="name" value="<?= e($m['name']) ?>" style="width:130px;"></td>
                 <td class="text-right"><input type="number" step="1" name="lbs_per_hour" value="<?= e((string) $m['lbs_per_hour']) ?>" style="width:80px;"></td>
+                <td class="text-right"><input type="number" step="1" name="lbs_per_hour_dry" value="<?= e((string) ($m['lbs_per_hour_dry'] ?? 0)) ?>" style="width:80px;"></td>
                 <td class="text-right"><input type="number" step="1" name="washup_like_minutes" value="<?= e((string) $m['washup_like_minutes']) ?>" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="1" name="washup_next_minutes" value="<?= e((string) $m['washup_next_minutes']) ?>" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="1" name="washup_deep_minutes" value="<?= e((string) $m['washup_deep_minutes']) ?>" style="width:70px;"></td>
@@ -64,7 +67,8 @@
                 <form method="POST" action="/scheduling/settings/mills">
                 <?= csrf_field() ?>
                 <td><input type="text" name="name" placeholder="New mill…" style="width:130px;"></td>
-                <td class="text-right"><input type="number" step="1" name="lbs_per_hour" placeholder="lbs/hr" style="width:80px;"></td>
+                <td class="text-right"><input type="number" step="1" name="lbs_per_hour" placeholder="std" style="width:80px;"></td>
+                <td class="text-right"><input type="number" step="1" name="lbs_per_hour_dry" placeholder="dry" style="width:80px;"></td>
                 <td class="text-right"><input type="number" step="1" name="washup_like_minutes" placeholder="min" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="1" name="washup_next_minutes" placeholder="min" style="width:70px;"></td>
                 <td class="text-right"><input type="number" step="1" name="washup_deep_minutes" placeholder="min" style="width:70px;"></td>
