@@ -125,6 +125,9 @@ class ScheduleEngine
                 $warnings[] = "Bulk item {$bulk} has need (" . round($bn['need_lbs']) . " lbs across " . count($bn['packs']) . " pack(s)) but no scheduling config (color/batch size) — NOT scheduled. Configure it in Scheduling → Settings.";
                 continue;
             }
+            if (!empty($cfg['not_milled'])) {
+                continue;   // flagged Not Milled / Not Scheduled — silently excluded
+            }
             if (!isset($this->colorIndex[$cfg['color']])) {
                 $warnings[] = "Bulk item {$bulk} has unknown color '{$cfg['color']}' — not scheduled.";
                 continue;

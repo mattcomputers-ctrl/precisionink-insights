@@ -269,11 +269,19 @@ class SchedulingController
     public function saveItemConfig(): void
     {
         CSRF::validateRequest();
-        $code   = trim((string) ($_POST['bulk_item_code'] ?? ''));
-        $color  = trim((string) ($_POST['color'] ?? ''));
-        $b1     = (float) ($_POST['batch_size_1'] ?? 0);
-        $b2raw  = trim((string) ($_POST['batch_size_2'] ?? ''));
-        $b2     = $b2raw === '' ? null : (float) $b2raw;
+        $code      = trim((string) ($_POST['bulk_item_code'] ?? ''));
+        $color     = trim((string) ($_POST['color'] ?? ''));
+        $b1        = (float) ($_POST['batch_size_1'] ?? 0);
+        $b2raw     = trim((string) ($_POST['batch_size_2'] ?? ''));
+        $b2        = $b2raw === '' ? null : (float) $b2raw;
+        $notMilled = isset($_POST['not_milled']) ? 1 : 0;
+
+        // Not-milled items never schedule, so color/batch are irrelevant —
+        // default them so checking the box alone is a complete config.
+        if ($notMilled) {
+            if (!in_array($color, SchedulingDataService::COLORS, true)) $color = 'extender';
+            if ($b1 <= 0) $b1 = 1;
+        }
 
         if ($code === '' || $b1 <= 0 || !in_array($color, SchedulingDataService::COLORS, true)) {
             $_SESSION['_flash']['error'] = 'Item code, a valid color, and a positive primary batch size are required.';
@@ -285,6 +293,7 @@ class SchedulingController
         $data = [
             'color' => $color,
             'batch_size_1' => $b1, 'batch_size_2' => $b2,
+            'not_milled' => $notMilled,
         ];
         if ($exists) {
             $db->update('sched_item_config', $data, 'bulk_item_code = ?', [$code]);

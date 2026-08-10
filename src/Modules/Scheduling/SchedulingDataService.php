@@ -200,7 +200,7 @@ class SchedulingDataService
         );
     }
 
-    /** @return array<string, array{color:string,batch_size_1:float,batch_size_2:?float}> keyed by bulk code */
+    /** @return array<string, array{color:string,batch_size_1:float,batch_size_2:?float,not_milled:bool}> keyed by bulk code */
     public function itemConfigs(): array
     {
         $out = [];
@@ -209,6 +209,7 @@ class SchedulingDataService
                 'color'        => (string) $r['color'],
                 'batch_size_1' => (float)  $r['batch_size_1'],
                 'batch_size_2' => $r['batch_size_2'] !== null ? (float) $r['batch_size_2'] : null,
+                'not_milled'   => !empty($r['not_milled']),
             ];
         }
         return $out;

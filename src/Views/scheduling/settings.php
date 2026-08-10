@@ -237,6 +237,12 @@
             <input type="number" name="batch_size_2" min="1" step="1" placeholder="optional">
         </div>
         <div class="form-group" style="flex:0 0 auto;">
+            <label title="Item is never milled — exclude it from all schedules">Not milled</label>
+            <div style="padding-top:0.5rem;">
+                <input type="checkbox" name="not_milled" value="1" id="add-not-milled">
+            </div>
+        </div>
+        <div class="form-group" style="flex:0 0 auto;">
             <button type="submit" class="btn btn-primary">Save item</button>
         </div>
     </form>
@@ -248,6 +254,7 @@
         <thead>
             <tr><th>Bulk item</th><th>Color</th>
                 <th class="text-right">Batch 1 (lbs)</th><th class="text-right">Batch 2 (lbs)</th>
+                <th title="Never milled — excluded from all schedules">Not milled</th>
                 <th class="text-muted">Updated</th><th></th></tr>
         </thead>
         <tbody>
@@ -269,6 +276,7 @@
                 <td class="text-right"><input type="number" name="batch_size_2" min="1" step="1"
                         value="<?= $c['batch_size_2'] !== null ? e((string) round((float) $c['batch_size_2'])) : '' ?>"
                         placeholder="—" style="width:90px;"></td>
+                <td><input type="checkbox" name="not_milled" value="1" <?= !empty($c['not_milled']) ? 'checked' : '' ?>></td>
                 <td class="text-muted"><?= e(fmt_date($c['updated_at'], 'm/d/Y')) ?></td>
                 <td class="text-right nowrap">
                     <button type="submit" class="btn btn-sm btn-primary">Save</button>
@@ -341,6 +349,15 @@
     document.addEventListener('click', e => {
         if (!results.contains(e.target) && e.target !== input) results.style.display = 'none';
     });
+
+    /* "Not milled" relaxes required fields — checking the box alone is a full config */
+    const notMilledCb = document.getElementById('add-not-milled');
+    if (notMilledCb) {
+        const batchInput = document.querySelector('form[action="/scheduling/settings/items"] input[name="batch_size_1"]');
+        notMilledCb.addEventListener('change', () => {
+            if (batchInput) batchInput.required = !notMilledCb.checked;
+        });
+    }
 
     /* Worklist "Configure" buttons prefill the item form */
     document.querySelectorAll('.needs-config-btn').forEach(btn => {
