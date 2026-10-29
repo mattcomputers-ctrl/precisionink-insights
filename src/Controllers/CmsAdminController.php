@@ -39,6 +39,7 @@ class CmsAdminController
             'cmsHost'     => (string) ($config['host'] ?? ''),
             'cmsName'     => (string) ($config['name'] ?? 'CMS'),
             'cmsUser'     => (string) ($config['user'] ?? ''),
+            'cmsTrustCert' => !empty($config['trust_server_certificate']),
             'hasPassword' => ($config['password'] ?? 'CHANGE_ME') !== 'CHANGE_ME' && !empty($config['password']),
             'driver'      => $driver,
             'killSwitch'  => SyncSettings::killSwitch(),
@@ -67,6 +68,9 @@ class CmsAdminController
             'password' => ($_POST['password'] ?? '') !== ''
                 ? (string) $_POST['password']
                 : (string) ($current['password'] ?? ''),
+            // Explicit admin opt-in for the CMS server's self-signed
+            // certificate (ODBC 18 validates certs by default).
+            'trust_server_certificate' => isset($_POST['trust_server_certificate']),
         ];
 
         if ($new['host'] === '' || $new['user'] === '') {
@@ -86,6 +90,7 @@ class CmsAdminController
         $this->audit('cms_connection', 'update', [
             'host' => $new['host'], 'name' => $new['name'], 'user' => $new['user'],
             'password_changed' => ($_POST['password'] ?? '') !== '',
+            'trust_server_certificate' => $new['trust_server_certificate'],
         ]);
 
         $_SESSION['_flash']['success'] = 'CMS connection settings saved.';

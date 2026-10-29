@@ -45,6 +45,14 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
                 <input type="password" name="password" autocomplete="new-password" <?= $hasPassword ? '' : 'required' ?>>
             </div>
         </div>
+        <div class="form-group">
+            <label style="display:inline-flex;gap:0.4rem;align-items:flex-start;cursor:pointer;font-weight:400;">
+                <input type="checkbox" name="trust_server_certificate" value="1" <?= !empty($cmsTrustCert) ? 'checked' : '' ?>>
+                <span>Trust the CMS server's self-signed certificate
+                    <span class="text-muted">(needed with the Microsoft ODBC 18 driver — the CMS SQL Server has no CA-signed
+                    certificate; the connection stays encrypted either way)</span></span>
+            </label>
+        </div>
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Save connection</button>
         </div>

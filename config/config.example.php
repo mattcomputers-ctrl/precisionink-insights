@@ -29,6 +29,11 @@ return [
         'name'     => 'CMS',
         'user'     => 'cms_reader',
         'password' => 'CHANGE_ME',
+        // With the Microsoft ODBC 18 driver (pdo_sqlsrv), connections are
+        // encrypted and the server certificate is validated. The CMS SQL
+        // Server presents a self-signed certificate, so set this to true
+        // to accept it (traffic stays encrypted). Not used by pdo_dblib.
+        'trust_server_certificate' => false,
     ],
 
     'session' => [

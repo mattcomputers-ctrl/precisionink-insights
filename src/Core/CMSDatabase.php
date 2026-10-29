@@ -41,9 +41,18 @@ class CMSDatabase
         if (in_array('sqlsrv', \PDO::getAvailableDrivers(), true)) {
             $driver = 'sqlsrv';
             $dsn = sprintf(
-                'sqlsrv:Server=%s,%d;Database=%s;LoginTimeout=30',
+                'sqlsrv:Server=%s,%d;Database=%s;LoginTimeout=30;Encrypt=1',
                 $host, $port, $name
             );
+            // ODBC Driver 18 validates the server certificate by default.
+            // The CMS SQL Server presents a self-signed certificate, so the
+            // admin may explicitly opt in to trusting it (connection stays
+            // encrypted). Set via Admin → CMS & Sync or config cms_db
+            // trust_server_certificate. Without it, ODBC 18 fails with
+            // "SSL Provider: certificate verify failed: self-signed certificate".
+            if (!empty($config['trust_server_certificate'])) {
+                $dsn .= ';TrustServerCertificate=1';
+            }
         } elseif (in_array('dblib', \PDO::getAvailableDrivers(), true)) {
             $driver = 'dblib';
             $dsn = sprintf('dblib:host=%s:%d;dbname=%s', $host, $port, $name);

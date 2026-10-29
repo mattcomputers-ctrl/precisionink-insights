@@ -453,7 +453,8 @@ case "$verb" in
             if (!is_array($in) || empty($in["host"]) || empty($in["user"])) { fwrite(STDERR, "Invalid JSON input.\n"); exit(1); }
             $cfg = ["host" => (string)$in["host"], "port" => 1433,
                     "name" => (string)($in["name"] ?: "CMS"),
-                    "user" => (string)$in["user"], "password" => (string)($in["password"] ?? "")];
+                    "user" => (string)$in["user"], "password" => (string)($in["password"] ?? ""),
+                    "trust_server_certificate" => !empty($in["trust_server_certificate"])];
             $f = "'"$INSTALL_DIR"'/config/cms.local.php";
             file_put_contents($f, "<?php\nreturn " . var_export($cfg, true) . ";\n", LOCK_EX);
             chmod($f, 0640); chown($f, "www-data"); chgrp($f, "www-data");
