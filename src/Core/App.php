@@ -184,6 +184,12 @@ class App
             $r->post('/settings/run-snapshot',     'AdminController@runInventorySnapshot');
             $r->post('/settings/backfill-snapshot', 'AdminController@backfillInventorySnapshots');
             $r->get('/settings/snapshot-status',    'AdminController@snapshotStatus');
+            $r->post('/settings/update-now',       'AdminController@updateNow');
+            $r->post('/settings/backup-now',       'AdminController@backupNow');
+            $r->get('/settings/download-backup',   'AdminController@downloadBackup');
+
+            $r->get('/network',   'AdminController@network');
+            $r->post('/network',  'AdminController@saveNetwork');
 
             $r->get('/audit-log', 'AdminController@auditLog');
             $r->get('/ui-kit',    'AdminController@uiKit');

@@ -554,12 +554,132 @@ class AdminController
                FROM inventory_snapshots"
         ) ?: [];
 
+        // Version + update/backup state (SPEC §5 Admin → System)
+        $base = App::basePath();
+        $version = trim((string) @shell_exec(
+            'git -C ' . escapeshellarg($base) . ' log -1 --format="%h · %ad · %s" --date=format:"%Y-%m-%d %H:%M" 2>/dev/null'
+        ));
+        $updateLog = '';
+        $logFile = $base . '/storage/logs/update.log';
+        if (file_exists($logFile)) {
+            $lines = file($logFile) ?: [];
+            $updateLog = implode('', array_slice($lines, -30));
+        }
+        $backups = [];
+        foreach (glob('/var/backups/insights/insights-*.sql.gz') ?: [] as $f) {
+            $backups[] = ['file' => basename($f), 'size' => filesize($f), 'time' => filemtime($f)];
+        }
+        usort($backups, fn($a, $b) => $b['time'] <=> $a['time']);
+
         layout('admin/settings/index', [
             'pageTitle'     => 'System settings',
             'appNameValue'  => $overrides['app.name'] ?? '',
             'configAppName' => (string) App::config('app.name', 'Precision Ink Insights'),
             'snapshotInfo'  => $snapshotInfo,
+            'version'       => $version !== '' ? $version : 'unknown (not a git checkout?)',
+            'updateLog'     => $updateLog,
+            'backups'       => array_slice($backups, 0, 10),
+            'helperReady'   => is_file('/usr/local/sbin/insights-helper'),
         ]);
+    }
+
+    /** POST /admin/settings/update-now — run the updater via the helper, in the background. */
+    public function updateNow(): void
+    {
+        CSRF::validateRequest();
+        $log = App::basePath() . '/storage/logs/update.log';
+        if (!is_file('/usr/local/sbin/insights-helper')) {
+            $_SESSION['_flash']['error'] = 'The privileged helper is not installed yet — run install.sh once on the server.';
+            redirect('/admin/settings');
+        }
+        @file_put_contents($log, '[' . date('Y-m-d H:i:s') . "] Update requested from the web by " . (current_user()['username'] ?? '?') . "\n", FILE_APPEND);
+        shell_exec('nohup sudo /usr/local/sbin/insights-helper update >> ' . escapeshellarg($log) . ' 2>&1 &');
+        $this->audit('system', null, 'update_now', []);
+        $_SESSION['_flash']['success'] = 'Update started — the log below refreshes when you reload this page.';
+        redirect('/admin/settings');
+    }
+
+    /** POST /admin/settings/backup-now */
+    public function backupNow(): void
+    {
+        CSRF::validateRequest();
+        if (!is_file('/usr/local/sbin/insights-helper')) {
+            $_SESSION['_flash']['error'] = 'The privileged helper is not installed yet — run install.sh once on the server.';
+            redirect('/admin/settings');
+        }
+        $out = (string) shell_exec('sudo /usr/local/sbin/insights-helper backup 2>&1');
+        $this->audit('system', null, 'backup_now', ['output' => trim($out)]);
+        $_SESSION['_flash'][str_contains($out, 'Backup written') ? 'success' : 'error'] = trim($out) ?: 'No output from the backup helper.';
+        redirect('/admin/settings');
+    }
+
+    /** GET /admin/settings/download-backup — stream the newest backup. */
+    public function downloadBackup(): void
+    {
+        $files = glob('/var/backups/insights/insights-*.sql.gz') ?: [];
+        usort($files, fn($a, $b) => filemtime($b) <=> filemtime($a));
+        if ($files === [] || !is_readable($files[0])) {
+            $_SESSION['_flash']['error'] = 'No readable backup found.';
+            redirect('/admin/settings');
+        }
+        $this->audit('system', null, 'download_backup', ['file' => basename($files[0])]);
+        header('Content-Type: application/gzip');
+        header('Content-Disposition: attachment; filename="' . basename($files[0]) . '"');
+        header('Content-Length: ' . filesize($files[0]));
+        readfile($files[0]);
+        exit;
+    }
+
+    /* ------------------------------------------------------------------
+     *  Network (SPEC §5 Admin → Network)
+     * ----------------------------------------------------------------*/
+
+    public function network(): void
+    {
+        require_permission('admin.network');
+        $interfaces = [];
+        foreach (explode("\n", (string) @shell_exec('ip -o -4 addr show 2>/dev/null')) as $line) {
+            if (preg_match('/^\d+:\s+(\S+)\s+inet\s+(\S+)/', trim($line), $m) && $m[1] !== 'lo') {
+                $interfaces[] = ['name' => $m[1], 'addr' => $m[2]];
+            }
+        }
+        layout('admin/network/index', [
+            'pageTitle'   => 'Network',
+            'interfaces'  => $interfaces,
+            'helperReady' => is_file('/usr/local/sbin/insights-helper'),
+        ]);
+    }
+
+    public function saveNetwork(): void
+    {
+        require_permission('admin.network');
+        CSRF::validateRequest();
+
+        $iface = trim((string) ($_POST['iface'] ?? ''));
+        $cidr  = trim((string) ($_POST['cidr'] ?? ''));
+        $gw    = trim((string) ($_POST['gateway'] ?? ''));
+        $dns   = preg_split('/[\s,]+/', trim((string) ($_POST['dns'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        if (!preg_match('/^[a-z0-9]+$/', $iface) || !preg_match('#^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$#', $cidr)
+            || !preg_match('/^\d{1,3}(\.\d{1,3}){3}$/', $gw) || $dns === []) {
+            $_SESSION['_flash']['error'] = 'Check the values — interface, IP/CIDR, gateway and at least one DNS server are required.';
+            redirect('/admin/network');
+        }
+
+        $this->audit('network', $iface, 'set', ['cidr' => $cidr, 'gw' => $gw, 'dns' => $dns]);
+
+        // The connection will drop when the address changes — run detached.
+        $cmd = 'nohup sudo /usr/local/sbin/insights-helper set-network '
+             . escapeshellarg($iface) . ' ' . escapeshellarg($cidr) . ' ' . escapeshellarg($gw);
+        foreach ($dns as $d) {
+            $cmd .= ' ' . escapeshellarg($d);
+        }
+        $log = App::basePath() . '/storage/logs/network.log';
+        shell_exec($cmd . ' >> ' . escapeshellarg($log) . ' 2>&1 &');
+
+        $ip = explode('/', $cidr)[0];
+        $_SESSION['_flash']['warning'] = "Network change submitted. In ~10 seconds the server moves to {$ip} — reconnect your browser at http://{$ip}/ .";
+        redirect('/admin/network');
     }
 
     /**

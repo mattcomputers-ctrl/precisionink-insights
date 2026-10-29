@@ -107,7 +107,9 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
         $adminLinks = [];
         if (user_can('admin.users'))  { $adminLinks['/admin/users'] = ['👥', 'Users & groups']; }
         if (user_can('admin.cms'))    { $adminLinks['/admin/cms'] = ['🔌', 'CMS & Sync']; }
-        if (user_can('admin.system')) { $adminLinks['/admin/settings'] = ['🛠', 'System settings']; $adminLinks['/admin/audit-log'] = ['📜', 'Audit log']; }
+        if (user_can('admin.system')) { $adminLinks['/admin/settings'] = ['🛠', 'System settings']; }
+        if (user_can('admin.network')) { $adminLinks['/admin/network'] = ['🌐', 'Network']; }
+        if (user_can('admin.system')) { $adminLinks['/admin/audit-log'] = ['📜', 'Audit log']; }
         ?>
         <?php if ($adminLinks !== []): ?>
             <div class="nav-section">Administration</div>

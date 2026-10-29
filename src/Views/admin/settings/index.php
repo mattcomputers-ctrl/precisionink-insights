@@ -211,3 +211,57 @@ $earliest     = $snapshotInfo['earliest'] ?? null;
     poll();
 })();
 </script>
+
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">System</h2>
+            <div class="card-subtitle">Version, updates and backups (SPEC §5).</div>
+        </div>
+    </div>
+
+    <p><strong>Installed version:</strong> <code><?= e($version) ?></code></p>
+
+    <?php if (empty($helperReady)): ?>
+        <div class="alert alert-info">
+            Web-triggered updates and backups need the privileged helper.
+            Run <code>sudo bash install.sh</code> once on the server to install it.
+        </div>
+    <?php else: ?>
+        <div class="form-actions">
+            <form method="POST" action="/admin/settings/update-now"
+                  onsubmit="return confirm('Update now? The app backs itself up, pulls the latest code, migrates, runs the test suite and rolls back automatically if anything fails.');">
+                <?= csrf_field() ?>
+                <button type="submit" class="btn btn-primary" data-busy-label="Starting update…">⬆ Update now</button>
+            </form>
+            <form method="POST" action="/admin/settings/backup-now">
+                <?= csrf_field() ?>
+                <button type="submit" class="btn" data-busy-label="Backing up…">💾 Back up now</button>
+            </form>
+            <?php if (!empty($backups)): ?>
+                <a href="/admin/settings/download-backup" class="btn" data-export="1">⬇ Download latest backup</a>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($backups)): ?>
+        <h3 style="margin-top:1rem;font-size:0.95rem;">Recent backups</h3>
+        <table class="table" style="max-width:560px;">
+            <thead><tr><th>File</th><th>Size</th><th>When</th></tr></thead>
+            <tbody>
+            <?php foreach ($backups as $b): ?>
+                <tr>
+                    <td><code><?= e($b['file']) ?></code></td>
+                    <td><?= fmt_number($b['size'] / 1024, 0) ?> KB</td>
+                    <td class="text-muted"><?= e(date('M j, Y g:i A', $b['time'])) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($updateLog)): ?>
+        <h3 style="margin-top:1rem;font-size:0.95rem;">Update log (last 30 lines — reload to refresh)</h3>
+        <pre style="background:var(--surface-2);padding:0.75rem;border-radius:8px;font-size:0.78rem;overflow-x:auto;max-height:300px;"><?= e($updateLog) ?></pre>
+    <?php endif; ?>
+</div>
