@@ -167,6 +167,12 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     (shown under the same batch number), and all counts (tickets subtitle,
     overview tile) count distinct master batches. Orphan packs whose batch
     is gone still check bulk against on-hand stock.
+    An NST pack behind an open batch is NOT checked at all and claims no
+    stock — NST is packaging's normal waiting state; it only starts when
+    the batch goes into BAT (Matt, 2026-10-29). Its status pill is neutral
+    ("Waits for the batch"), its Materials cell reads "— with the batch",
+    and it re-enters the check once released or once its batch is gone.
+    mfba_short still carries through it so orders warn about the batch.
     On open tickets `QtyUsed` is always 0/NULL (verified live): materials
     are issued at completion, so remaining = `QtyReqd`. Surfaced on the
     Batch tickets page (Materials column + export), the orders list

@@ -484,12 +484,16 @@ class OrderReadinessController
             $r = $readiness[(int) $t['ordr']] ?? null;
             $materials = '';
             if ($r !== null) {
-                $materials = $r['status'] === 'short'
-                    ? 'Short: ' . implode('; ', array_map(
+                if ($r['status'] === 'short') {
+                    $materials = 'Short: ' . implode('; ', array_map(
                         fn($s) => $s['item_code'] . ' -' . rtrim(rtrim(number_format((float) $s['short'], 2, '.', ''), '0'), '.') . ' ' . $s['unit'],
                         $r['shortages']
-                    ))
-                    : 'On hand';
+                    ));
+                } elseif ($t['context'] === 'MFPP' && $t['status'] === 'NST') {
+                    $materials = 'With the batch';
+                } else {
+                    $materials = 'On hand';
+                }
             }
             $rows[] = [
                 $t['batch_ordr'] ?? $t['ordr'], $t['context'], $t['status'], $t['item_code'], $t['description'],

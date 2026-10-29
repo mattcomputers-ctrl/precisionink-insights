@@ -18,9 +18,9 @@ $mfba = fn(int $ordr, float $qty, ?string $due = null) => [
     'ordr' => $ordr, 'context' => 'MFBA', 'batch_ordr' => $ordr,
     'bulk_code' => null, 'date_required' => $due, 'qty' => $qty,
 ];
-$mfpp = fn(int $ordr, int $batch, string $bulk, float $qty, ?string $due = null) => [
+$mfpp = fn(int $ordr, int $batch, string $bulk, float $qty, ?string $due = null, string $status = 'RLS') => [
     'ordr' => $ordr, 'context' => 'MFPP', 'batch_ordr' => $batch,
-    'bulk_code' => $bulk, 'date_required' => $due, 'qty' => $qty,
+    'bulk_code' => $bulk, 'date_required' => $due, 'qty' => $qty, 'status' => $status,
 ];
 
 // All materials on hand → ok.
@@ -123,6 +123,51 @@ $r = TicketMaterialsEngine::compute(
 );
 t_check($r[3004]['status'] === 'short' && abs($r[3004]['shortages'][0]['short'] - 50.0) < 1e-6,
     'orphan packaging falls back to on-hand bulk');
+
+t_section('TicketMaterialsEngine: NST packs behind an open batch are not checked');
+
+// NST is the pack's normal waiting state — packaging only starts when the
+// batch goes into BAT (Matt, 2026-10-29). No flags, even short containers.
+$r = TicketMaterialsEngine::compute(
+    [$mfba(6001, 500, '2026-11-01'), $mfpp(6002, 6001, 'BULK-Z', 450, '2026-11-08', 'NST')],
+    [6002 => [
+        'BULK-Z' => ['qty' => 450, 'unit' => 'lb'],
+        '5LBPT'  => ['qty' => 90, 'unit' => 'ea'],
+    ]],
+    []   // nothing on hand at all
+);
+t_check($r[6002]['status'] === 'ok' && $r[6002]['shortages'] === [],
+    'NST pack behind an open batch is never flagged');
+
+// ...and it claims no stock, so a RELEASED pack due later gets the pails.
+$r = TicketMaterialsEngine::compute(
+    [$mfba(6001, 500, '2026-11-01'),
+     $mfpp(6002, 6001, 'BULK-Z', 450, '2026-11-02', 'NST'),
+     $mfpp(6004, 6003, 'BULK-W', 100, '2026-11-09', 'RLS'),
+     $mfba(6003, 200, '2026-11-01')],
+    [
+        6002 => ['5LBPT' => ['qty' => 90, 'unit' => 'ea']],
+        6004 => ['5LBPT' => ['qty' => 60, 'unit' => 'ea']],
+    ],
+    ['5LBPT' => 70.0]
+);
+t_check($r[6004]['status'] === 'ok', 'released pack gets the pails the NST pack is not yet claiming');
+
+// A released pack IS still checked (containers), and an NST orphan too.
+$r = TicketMaterialsEngine::compute(
+    [$mfpp(6005, 0, 'BULK-Z', 200, '2026-11-01', 'NST')],
+    [6005 => ['BULK-Z' => ['qty' => 200, 'unit' => 'lb']]],
+    ['BULK-Z' => 150.0]
+);
+t_check($r[6005]['status'] === 'short', 'NST orphan (its batch is gone) is still checked');
+
+// mfba_short still carries through for order-level warnings.
+$r = TicketMaterialsEngine::compute(
+    [$mfba(6006, 500, '2026-11-01'), $mfpp(6007, 6006, 'BULK-Q', 450, '2026-11-08', 'NST')],
+    [6006 => ['VEC-1' => ['qty' => 300, 'unit' => 'lb']]],
+    []
+);
+t_check($r[6007]['mfba_short'] === 1, 'NST pack still inherits its batch\'s materials problem for order warnings');
 
 t_section('TicketMaterialsEngine: chain flag');
 

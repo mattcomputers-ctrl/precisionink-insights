@@ -16,7 +16,11 @@ namespace PII\Modules\OrderReadiness;
  * batch exists precisely to make that bulk, so "short because the bulk
  * isn't made yet" is noise (Matt, 2026-10-29 — only the master batch
  * number gets flagged). A pack's real externals are its containers.
- * Orphan packs (batch already gone) still check bulk against stock.
+ * A pack that is NST with its batch still open isn't checked AT ALL:
+ * packaging only starts when the batch goes into BAT, so NST is its
+ * normal waiting state (Matt, 2026-10-29). It re-enters the check once
+ * released (or once its batch is gone — orphan packs check everything,
+ * bulk included, against on-hand stock).
  * An MFBA whose own raw materials are short poisons its MFPPs (mfba_short).
  *
  * Input:
@@ -57,7 +61,12 @@ class TicketMaterialsEngine
             $shortages = [];
             $fromMfba = 0.0;
 
-            foreach ($materials[$ordr] ?? [] as $code => $m) {
+            // A not-yet-started pack behind an open batch: normal waiting
+            // state — no checks, and it claims no stock from other tickets.
+            $pendingPack = $t['context'] === 'MFPP' && ($t['status'] ?? '') === 'NST'
+                && isset($openMfba[(int) ($t['batch_ordr'] ?? 0)]);
+
+            foreach ($pendingPack ? [] : ($materials[$ordr] ?? []) as $code => $m) {
                 $need = max(0.0, (float) $m['qty']);
                 if ($need <= self::EPS) {
                     continue;

@@ -9,6 +9,11 @@ require __DIR__ . '/_subnav.php';
 
 $today = date('Y-m-d');
 $pill = function (array $t) use ($today): string {
+    // NST is NORMAL for packaging — it only starts when its batch goes
+    // into BAT (Matt, 2026-10-29) — so no warning on MFPP rows.
+    if ($t['status'] === 'NST' && $t['context'] === 'MFPP') {
+        return '<span class="pill" title="Packaging starts when the batch goes into BAT">⏸ Waits for the batch (NST)</span>';
+    }
     $out = match ($t['status']) {
         'RLS' => '<span class="pill pill-active">✔ Released (RLS)</span>',
         'NST' => '<span class="pill pill-warn">⚠ Not released (NST)</span>',
@@ -78,6 +83,8 @@ $pill = function (array $t) use ($today): string {
                         <?php $r = $readiness[(int) $t['ordr']] ?? null; ?>
                         <?php if ($r === null): ?>
                             <span class="text-muted" title="Materials check runs on the next sync">—</span>
+                        <?php elseif ($t['context'] === 'MFPP' && $t['status'] === 'NST' && $r['status'] !== 'short'): ?>
+                            <span class="text-muted" title="Checked once the packaging starts (when the batch goes into BAT)">— with the batch</span>
                         <?php elseif ($r['status'] === 'short'): ?>
                             <span class="pill pill-danger">⚠ Short materials</span>
                             <?php foreach ($r['shortages'] as $s): ?>
