@@ -13,6 +13,16 @@ class MarginWatchdogModule extends Module
     public function name(): string        { return 'Margin Watchdog'; }
     public function basePath(): string    { return '/margin-watchdog'; }
     public function icon(): string        { return '📉'; }
+    public function description(): string { return 'Compare margins and packed costs between two date ranges, down to customer and item.'; }
+    public function viewsPath(): ?string  { return __DIR__ . '/Views'; }
+
+    public function permissions(): array
+    {
+        return [
+            'margin.view'   => 'See margin and cost data (sensitive — executives by default)',
+            'margin.export' => 'Export margin reports to Excel',
+        ];
+    }
 
     public function registerRoutes(Router $router): void
     {

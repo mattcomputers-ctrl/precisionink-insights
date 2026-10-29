@@ -21,7 +21,7 @@ class SchedulingController
     {
         $svc = new SchedulingDataService();
 
-        layout('scheduling/index', [
+        layout('scheduling::index', [
             'pageTitle' => 'Production Scheduling',
             'mills'     => $svc->mills(),
             'hasCms'    => CMSDatabase::isConfigured(),
@@ -178,7 +178,7 @@ class SchedulingController
             $worklistError = 'CMS database not configured.';
         }
 
-        layout('scheduling/settings', [
+        layout('scheduling::settings', [
             'pageTitle'      => 'Scheduling settings',
             'mills'          => $svc->mills(false),
             'colorOrder'     => $svc->colorOrder(),

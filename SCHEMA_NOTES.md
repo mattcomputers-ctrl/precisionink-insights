@@ -213,10 +213,15 @@ at the top of
 
 ## 5. How to add a new module / tab
 
-The module abstraction lives in `src/Core/Module.php`. To add a tab:
+The module abstraction lives in `src/Core/Module.php`. A module is a
+self-contained folder under `src/Modules/{Name}/`: code, `Views/` (rendered
+with `view('{key}::{template}')` / `layout('{key}::{template}', …)`), and
+`Tests/*Test.php` (picked up by `php tests/run.php`). To add a tab:
 
-1. Create a class under `src/Modules/{Name}/{Name}Module.php` extending `\PII\Core\Module`.
-2. Implement `key()`, `name()`, `basePath()`, `permissionKey()`, `registerRoutes()`.
+1. Create `src/Modules/{Name}/{Name}Module.php` extending `\PII\Core\Module`.
+2. Implement `key()`, `name()`, `basePath()`, `registerRoutes()`; override the
+   manifest methods as needed: `description()`, `icon()`, `permissions()`,
+   `navItems()`, `syncJobs()`, and `viewsPath()` (return `__DIR__ . '/Views'`).
 3. Register it in `src/Core/App.php` → `buildModuleRegistry()`.
 4. Optionally grant the new permission key to existing groups in
    `/admin/groups`.

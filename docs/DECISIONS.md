@@ -64,6 +64,17 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
 - Reactivated/newly-discontinued badge duration (spec default 14 days) — default stands
   unless Matt objects.
 - Per-user landing-page override: admin-only for now (spec's own recommendation).
-- Webserver migration Apache→nginx and dblib→pdo_sqlsrv: spec §5 wants nginx + ODBC 18.
-  **Needs Matt's confirmation** since it changes the in-place upgrade of the production
-  server (see migration plan in the step-1 review).
+## 2026-10-29 — Decisions from the step-1 review (Matt)
+
+16. **Keep Apache + mod_php; do NOT migrate to nginx + PHP-FPM.** The webserver has never
+    been a problem, traffic is tiny, and the sync worker is a CLI systemd service either
+    way — swapping the webserver on the production box is risk with no payoff. Spec §5's
+    installer is adapted accordingly (Apache vhost instead of nginx site; everything else
+    per spec).
+17. **Swap the CMS driver dblib → Microsoft ODBC 18 + `pdo_sqlsrv`** (that's where the real
+    pain was: date-format trap, query-timeout kills). Keep the dblib code path as a
+    fallback, and verify via the new Admin → CMS "Test connection" before anything depends
+    on it.
+18. **Local test execution via Docker** (`php:cli` container) on Matt's Windows box — the
+    box has no PHP but has Docker, so the Margin Watchdog fixture regression runs locally
+    before every push instead of only on the server.

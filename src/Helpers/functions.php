@@ -49,8 +49,20 @@ function e(?string $str): string
 
 function view(string $__template, array $__data = []): void
 {
-    $__template = str_replace('.', '/', $__template);
-    $__file = dirname(__DIR__) . '/Views/' . $__template . '.php';
+    // "module_key::template" renders from that module's own Views dir
+    // (Module::viewsPath()); plain names render from the shared src/Views.
+    if (str_contains($__template, '::')) {
+        [$__moduleKey, $__template] = explode('::', $__template, 2);
+        $__module = \PII\Core\App::modules()->get($__moduleKey);
+        $__dir    = $__module?->viewsPath();
+        if ($__dir === null) {
+            throw new \RuntimeException("No views directory for module [{$__moduleKey}].");
+        }
+        $__file = rtrim($__dir, '/\\') . '/' . str_replace('.', '/', $__template) . '.php';
+    } else {
+        $__template = str_replace('.', '/', $__template);
+        $__file = dirname(__DIR__) . '/Views/' . $__template . '.php';
+    }
 
     if (!file_exists($__file)) {
         throw new \RuntimeException("View [{$__template}] not found at [{$__file}].");

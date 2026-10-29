@@ -13,6 +13,16 @@ class SchedulingModule extends Module
     public function name(): string     { return 'Scheduling'; }
     public function basePath(): string { return '/scheduling'; }
     public function icon(): string     { return '🏭'; }
+    public function description(): string { return 'Need-driven mill schedule: what to make, on which mill, in color-ladder order.'; }
+    public function viewsPath(): ?string  { return __DIR__ . '/Views'; }
+
+    public function permissions(): array
+    {
+        return [
+            'scheduling.view'   => 'See the production schedule',
+            'scheduling.manage' => 'Edit mills, triggers and item setup; export the schedule',
+        ];
+    }
 
     public function registerRoutes(Router $router): void
     {

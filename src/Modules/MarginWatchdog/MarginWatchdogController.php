@@ -74,7 +74,7 @@ class MarginWatchdogController
             }
         }
 
-        layout('margin-watchdog/index', [
+        layout('margin_watchdog::index', [
             'pageTitle'    => 'Margin Watchdog',
             'params'       => $params,
             'sort'         => $sort,
@@ -129,7 +129,7 @@ class MarginWatchdogController
 
         $thresholds = Thresholds::forUser($userId);
 
-        view('margin-watchdog/items_fragment', [
+        view('margin_watchdog::items_fragment', [
             'billTo'     => $billTo,
             'items'      => $items,
             'viewMode'   => $viewMode,
