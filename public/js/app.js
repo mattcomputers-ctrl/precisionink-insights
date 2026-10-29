@@ -218,10 +218,29 @@
 
         syncBtn?.addEventListener('click', () => requestSync(false));
         tryBtn?.addEventListener('click', () => requestSync(false));
+        window.PII.requestSync = requestSync;
         poll();
         // Tick the relative time while idle.
         setInterval(() => { if (status && status.state !== 'syncing') render(); }, 30000);
     }
+
+    /* ── Per-page "Sync now" buttons (tool pages) ───────────────── */
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.sync-now-page');
+        if (!btn || btn.classList.contains('is-busy')) return;
+        btn.classList.add('is-busy');
+        btn.dataset.originalHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span> Updating…';
+        const restore = () => {
+            btn.classList.remove('is-busy');
+            if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+        };
+        document.addEventListener('pii:sync-finished', restore, { once: true });
+        setTimeout(restore, 90000);   // fallback if no finish event arrives
+        if (window.PII.requestSync) {
+            window.PII.requestSync(false);
+        }
+    });
 
     /* ── Margin Watchdog: Bill To drill-down ────────────────────── */
     document.addEventListener('click', async (e) => {

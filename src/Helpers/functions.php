@@ -242,6 +242,19 @@ function require_permission(string ...$permissions): void
     render_not_found();
 }
 
+/**
+ * A per-page "Sync now" button (same action as the status-bar one; wired
+ * in app.js). Renders nothing without the sync.manual permission —
+ * hidden, not disabled.
+ */
+function sync_now_button(): string
+{
+    if (!user_can('sync.manual')) {
+        return '';
+    }
+    return '<button type="button" class="btn btn-sm sync-now-page" title="Refresh data from CMS now">⟳ Sync now</button>';
+}
+
 /* ------------------------------------------------------------------
  *  Number / money formatting
  * ----------------------------------------------------------------*/

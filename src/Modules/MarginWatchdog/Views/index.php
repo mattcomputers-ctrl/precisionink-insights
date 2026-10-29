@@ -19,6 +19,13 @@ $csDefault = $params['comparison_start'] !== '' ? $params['comparison_start'] : 
 $ceDefault = $params['comparison_end']   !== '' ? $params['comparison_end']   : $today;
 ?>
 
+<?php if (($btn = sync_now_button()) !== ''): ?>
+    <div class="toolbar" style="margin-top:-0.5rem;">
+        <span class="text-muted" style="font-size:0.85rem;">Reports query CMS live when you run them.</span>
+        <?= $btn ?>
+    </div>
+<?php endif; ?>
+
 <?php foreach ($errors as $err): ?>
     <div class="alert alert-danger"><?= e($err) ?></div>
 <?php endforeach; ?>

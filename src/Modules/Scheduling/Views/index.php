@@ -30,9 +30,12 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
                 Runs are sequenced by the color ladder to minimize washups; order shortfalls jump the line.
             </div>
         </div>
-        <?php if (user_can('scheduling.manage')): ?>
-            <a href="/scheduling/settings" class="btn btn-sm">⚙ Scheduling settings</a>
-        <?php endif; ?>
+        <div class="flex gap-1 items-center">
+            <?= sync_now_button() ?>
+            <?php if (user_can('scheduling.manage')): ?>
+                <a href="/scheduling/settings" class="btn btn-sm">⚙ Scheduling settings</a>
+            <?php endif; ?>
+        </div>
     </div>
 
     <div class="form-row">

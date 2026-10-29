@@ -15,7 +15,10 @@ $links[] = ['/orders/notes', 'Notes'];
             <a href="<?= e($href) ?>" class="btn btn-sm <?= $isActive ? 'btn-primary' : '' ?>"><?= e($label) ?></a>
         <?php endforeach; ?>
     </div>
-    <?php if (!empty($asOf)): ?>
-        <span class="text-muted" style="font-size:0.85rem;">Data as of <?= e(fmt_date($asOf, 'M j, g:i A')) ?></span>
-    <?php endif; ?>
+    <div class="flex gap-1 items-center">
+        <?php if (!empty($asOf)): ?>
+            <span class="text-muted" style="font-size:0.85rem;">Data as of <?= e(fmt_date($asOf, 'M j, g:i A')) ?></span>
+        <?php endif; ?>
+        <?= sync_now_button() ?>
+    </div>
 </div>
