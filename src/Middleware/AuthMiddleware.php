@@ -46,6 +46,7 @@ class AuthMiddleware
         '/admin/groups'    => 'admin.users',
         '/admin/settings'  => 'admin.system',
         '/admin/audit-log' => 'admin.system',
+        '/admin/cms'       => 'admin.cms',   // sync-settings POSTs re-check admin.sync
     ];
 
     /**

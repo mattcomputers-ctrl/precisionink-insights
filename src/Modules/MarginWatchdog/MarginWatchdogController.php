@@ -68,6 +68,8 @@ class MarginWatchdogController
                         ]),
                         'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
                     ]);
+                } catch (\PII\Core\CMSUnavailableException $e) {
+                    $errors[] = $e->friendlyMessage();
                 } catch (\Throwable $e) {
                     $errors[] = 'CMS query failed: ' . $e->getMessage();
                 }
@@ -113,6 +115,10 @@ class MarginWatchdogController
         try {
             $svc = new ShipmentService();
             $rows = $svc->itemsForBillTo($billTo, $bStart, $bEnd, $cStart, $cEnd, $viewMode);
+        } catch (\PII\Core\CMSUnavailableException $e) {
+            http_response_code(503);
+            echo '<div class="alert alert-info">' . e($e->friendlyMessage()) . '</div>';
+            return;
         } catch (\Throwable $e) {
             http_response_code(500);
             echo '<div class="alert alert-danger">CMS query failed: ' . e($e->getMessage()) . '</div>';

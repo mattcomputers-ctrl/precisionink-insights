@@ -52,6 +52,9 @@ if ($user) {
             <?php if (user_can('admin.system')): ?>
                 <a href="/admin/settings" class="btn btn-sm" title="System settings">⚙ Settings</a>
             <?php endif; ?>
+            <?php if (user_can('admin.cms')): ?>
+                <a href="/admin/cms" class="btn btn-sm" title="CMS connection and sync">CMS &amp; Sync</a>
+            <?php endif; ?>
             <?php if (user_can('admin.users')): ?>
                 <a href="/admin/users" class="btn btn-sm">Users</a>
             <?php endif; ?>

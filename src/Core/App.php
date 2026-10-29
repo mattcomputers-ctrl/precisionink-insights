@@ -24,6 +24,22 @@ class App
 
     public function __construct()
     {
+        self::init();
+        self::$session = new Session();
+        self::$session->start(self::$config['session'] ?? []);
+    }
+
+    /**
+     * Bootstrap for CLI processes (sync worker, cron scripts): everything
+     * the web app gets except the HTTP session and router.
+     */
+    public static function bootConsole(): void
+    {
+        self::init();
+    }
+
+    private static function init(): void
+    {
         self::$basePath = dirname(__DIR__, 2);
 
         $configFile = self::$basePath . '/config/config.php';
@@ -48,8 +64,6 @@ class App
         }
 
         self::$database = Database::init(self::$config['db']);
-        self::$session  = new Session();
-        self::$session->start(self::$config['session'] ?? []);
         self::$modules  = self::buildModuleRegistry();
     }
 
@@ -169,7 +183,19 @@ class App
             $r->get('/settings/snapshot-status',    'AdminController@snapshotStatus');
 
             $r->get('/audit-log', 'AdminController@auditLog');
+
+            // CMS & Sync (SPEC §3.1)
+            $r->get('/cms',                 'CmsAdminController@index');
+            $r->post('/cms/connection',     'CmsAdminController@saveConnection');
+            $r->post('/cms/test',           'CmsAdminController@testConnection');
+            $r->post('/cms/kill-switch',    'CmsAdminController@killSwitch');
+            $r->post('/cms/sync-settings',  'CmsAdminController@saveSyncSettings');
+            $r->post('/cms/blackouts',      'CmsAdminController@saveBlackouts');
         });
+
+        // ── Sync status bar endpoints ─────────────────────────────────
+        $router->get('/api/sync/status', 'SyncController@status');
+        $router->post('/api/sync/run',   'SyncController@run');
 
         // ── Module routes ────────────────────────────────────────────
         // Each registered module gets to register its own routes.

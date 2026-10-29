@@ -44,6 +44,11 @@ echo "[entry] running permission crawl…"
 set +e
 php tests/integration/crawl.php http://127.0.0.1:8080
 CRAWL=$?
+if [ "$CRAWL" -eq 0 ]; then
+    echo "[entry] running sync-flow test…"
+    php tests/integration/sync-flow.php http://127.0.0.1:8080
+    CRAWL=$?
+fi
 set -e
 
 if [ "$CRAWL" -ne 0 ]; then

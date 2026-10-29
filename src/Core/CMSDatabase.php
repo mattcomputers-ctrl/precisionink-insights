@@ -14,6 +14,16 @@ namespace PII\Core;
 class CMSDatabase
 {
     private static ?self $instance = null;
+
+    /**
+     * When true (web requests), getInstance() refuses CMS access during a
+     * backup blackout window or while the admin kill switch is on, throwing
+     * CMSUnavailableException with a friendly message. The sync worker turns
+     * this off and applies its own policy (blackouts stop runs at step
+     * boundaries; an admin override run may proceed).
+     */
+    private static bool $administrativeChecks = true;
+
     private \PDO $pdo;
 
     /** Long enough to cover the slow CMS TVFs (e.g. GetInventoryAtDate ~45s).
@@ -62,10 +72,36 @@ class CMSDatabase
         }
     }
 
+    public static function setAdministrativeChecks(bool $on): void
+    {
+        self::$administrativeChecks = $on;
+    }
+
+    /**
+     * Effective CMS connection settings: config/config.php's cms_db section,
+     * overridden by config/cms.local.php when present (written from
+     * Admin → CMS & Sync; gitignored, never in the database).
+     */
+    public static function effectiveConfig(): ?array
+    {
+        $config = App::config('cms_db');
+        $overrideFile = App::basePath() . '/config/cms.local.php';
+        if (file_exists($overrideFile)) {
+            $override = require $overrideFile;
+            if (is_array($override)) {
+                $config = array_merge($config ?? [], $override);
+            }
+        }
+        return $config ?: null;
+    }
+
     public static function getInstance(): self
     {
+        if (self::$administrativeChecks) {
+            self::assertNotBlocked();
+        }
         if (self::$instance === null) {
-            $config = App::config('cms_db');
+            $config = self::effectiveConfig();
             if (!$config) {
                 throw new \RuntimeException(
                     'CMS database not configured. Add a cms_db section to config/config.php.'
@@ -76,12 +112,58 @@ class CMSDatabase
         return self::$instance;
     }
 
+    /** Throw the friendly exception if the kill switch or a blackout blocks CMS access. */
+    public static function assertNotBlocked(): void
+    {
+        if (\PII\Services\Sync\SyncSettings::killSwitch()) {
+            throw new CMSUnavailableException(CMSUnavailableException::KILL_SWITCH);
+        }
+        $blackout = \PII\Services\Sync\SyncSettings::activeBlackout();
+        if ($blackout !== null) {
+            throw new CMSUnavailableException(
+                CMSUnavailableException::BLACKOUT,
+                $blackout['until']->format('g:i A')
+            );
+        }
+    }
+
     public static function isConfigured(): bool
     {
-        $config = App::config('cms_db');
+        $config = self::effectiveConfig();
         return $config !== null
             && !empty($config['host'])
             && ($config['password'] ?? 'CHANGE_ME') !== 'CHANGE_ME';
+    }
+
+    /**
+     * Try a connection with the given (or effective) settings.
+     * Returns ['ok' => bool, 'message' => string, 'driver' => ?string].
+     */
+    public static function testConnection(?array $config = null): array
+    {
+        $config = $config ?? self::effectiveConfig();
+        if (!$config || empty($config['host'])) {
+            return ['ok' => false, 'message' => 'No CMS connection settings.', 'driver' => null];
+        }
+        $drivers = \PDO::getAvailableDrivers();
+        $driver  = in_array('sqlsrv', $drivers, true) ? 'sqlsrv'
+                 : (in_array('dblib', $drivers, true) ? 'dblib' : null);
+        if ($driver === null) {
+            return [
+                'ok' => false,
+                'message' => 'SQL Server driver not installed (need pdo_sqlsrv or pdo_dblib).',
+                'driver' => null,
+            ];
+        }
+        try {
+            $probe = new self($config);
+            $row = $probe->fetch('SELECT 1 AS ok');
+            return ($row['ok'] ?? null) == 1
+                ? ['ok' => true, 'message' => 'Connected and query returned.', 'driver' => $driver]
+                : ['ok' => false, 'message' => 'Connected but test query failed.', 'driver' => $driver];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => $e->getMessage(), 'driver' => $driver];
+        }
     }
 
     public function fetch(string $sql, array $params = []): ?array
