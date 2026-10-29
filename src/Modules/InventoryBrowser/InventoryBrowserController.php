@@ -19,8 +19,6 @@ require_once dirname(__DIR__, 2) . '/Helpers/layout.php';
  */
 class InventoryBrowserController
 {
-    private const PER_PAGE = 50;
-
     /** Column key => [permission, heading, inv_items field] */
     private const COLUMNS = [
         'vendor_codes' => ['inventory.col_vendor_codes', 'Vendor codes', null],
@@ -43,32 +41,24 @@ class InventoryBrowserController
         $columns = $this->visibleColumns();
         $search  = trim((string) ($_GET['q'] ?? ''));
         $showAll = ($_GET['all'] ?? '') === '1';
-        $page    = max(1, (int) ($_GET['page'] ?? 1));
 
         [$where, $params] = $this->buildFilter($search, $showAll, isset($columns['vendor_codes']));
 
-        $total = (int) ($db->fetch("SELECT COUNT(*) AS n FROM inv_items i {$where}", $params)['n'] ?? 0);
-        $pages = max(1, (int) ceil($total / self::PER_PAGE));
-        $page  = min($page, $pages);
-        $offset = ($page - 1) * self::PER_PAGE;
+        // Everything on one page — the whole list renders at once.
+        $rows = $db->fetchAll("SELECT i.* FROM inv_items i {$where} ORDER BY i.item_code", $params);
 
-        $rows = $db->fetchAll(
-            "SELECT i.* FROM inv_items i {$where} ORDER BY i.item_code LIMIT " . self::PER_PAGE . " OFFSET {$offset}",
-            $params
-        );
-
-        // Vendor codes for just this page (only when the column is permitted).
+        // Vendor codes (only when the column is permitted). The whole table
+        // is small, so fetch it once and keep only the items being shown.
         $vendorCodes = [];
         if (isset($columns['vendor_codes']) && $rows !== []) {
-            $codes = array_column($rows, 'item_code');
-            $in = implode(',', array_fill(0, count($codes), '?'));
+            $shown = array_fill_keys(array_column($rows, 'item_code'), true);
             foreach ($db->fetchAll(
                 "SELECT item_code, vendor, vendor_code, po_count, last_po
-                 FROM inv_vendor_codes WHERE item_code IN ({$in})
-                 ORDER BY item_code, last_po DESC",
-                $codes
+                 FROM inv_vendor_codes ORDER BY item_code, last_po DESC"
             ) as $v) {
-                $vendorCodes[$v['item_code']][] = $v;
+                if (isset($shown[$v['item_code']])) {
+                    $vendorCodes[$v['item_code']][] = $v;
+                }
             }
         }
 
@@ -79,9 +69,7 @@ class InventoryBrowserController
             'vendorCodes' => $vendorCodes,
             'search'      => $search,
             'showAll'     => $showAll,
-            'page'        => $page,
-            'pages'       => $pages,
-            'total'       => $total,
+            'total'       => count($rows),
             'asOf'        => SyncSettings::lastSuccessAt(),
         ], 'inventory');
     }

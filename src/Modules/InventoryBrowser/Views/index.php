@@ -3,7 +3,7 @@
  * Inventory Browser. Only permitted columns are rendered (and were queried).
  * @var array $rows  @var array $columns  @var array $vendorCodes
  * @var string $search  @var bool $showAll
- * @var int $page  @var int $pages  @var int $total  @var ?string $asOf
+ * @var int $total  @var ?string $asOf
  */
 $qs = fn(array $extra) => '/inventory?' . http_build_query(array_filter([
     'q' => $search, 'all' => $showAll ? '1' : '', ] + $extra, fn($v) => $v !== ''));
@@ -17,7 +17,7 @@ $qs = fn(array $extra) => '/inventory?' . http_build_query(array_filter([
     </form>
     <div class="flex gap-1 items-center">
         <label style="display:inline-flex;gap:0.35rem;align-items:center;cursor:pointer;font-size:0.9rem;">
-            <input type="checkbox" onchange="location.href='<?= e($qs(['all' => $showAll ? '' : '1', 'page' => ''])) ?>'" <?= $showAll ? 'checked' : '' ?>>
+            <input type="checkbox" onchange="location.href='<?= e($qs(['all' => $showAll ? '' : '1'])) ?>'" <?= $showAll ? 'checked' : '' ?>>
             Include items with no stock or activity
         </label>
         <?php if (user_can('export')): ?>
@@ -34,7 +34,6 @@ $qs = fn(array $extra) => '/inventory?' . http_build_query(array_filter([
             <h2 class="card-title"><?= fmt_number($total) ?> item<?= $total === 1 ? '' : 's' ?></h2>
             <div class="card-subtitle">
                 <?= $asOf !== null ? 'Data as of ' . e(fmt_date($asOf, 'M j, g:i A')) : 'Waiting for the first sync' ?>
-                · page <?= (int) $page ?> of <?= (int) $pages ?>
             </div>
         </div>
     </div>
@@ -82,17 +81,5 @@ $qs = fn(array $extra) => '/inventory?' . http_build_query(array_filter([
             </tbody>
         </table>
     </div>
-
-    <?php if ($pages > 1): ?>
-        <div class="form-actions" style="justify-content:center;">
-            <?php if ($page > 1): ?>
-                <a class="btn btn-sm" href="<?= e($qs(['page' => $page - 1])) ?>">← Previous</a>
-            <?php endif; ?>
-            <span class="text-muted" style="align-self:center;">Page <?= (int) $page ?> of <?= (int) $pages ?></span>
-            <?php if ($page < $pages): ?>
-                <a class="btn btn-sm" href="<?= e($qs(['page' => $page + 1])) ?>">Next →</a>
-            <?php endif; ?>
-        </div>
-    <?php endif; ?>
     <?php endif; ?>
 </div>
