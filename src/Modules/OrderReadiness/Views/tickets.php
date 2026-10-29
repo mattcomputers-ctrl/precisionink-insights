@@ -1,50 +1,67 @@
 <?php
 /**
- * Open batch tickets and which order lines each is covering.
- * @var array $tickets  @var array $covering  @var ?string $asOf
- * @var array $readiness  ticket ordr => materials check
- * @var array $matNames   item_code => description (for shortages)
+ * Open batch tickets: ONE line per master batch, its packaging orders
+ * listed inside the line (Matt, 2026-10-29).
+ * @var array $batches   [['batch','mfba','packs','date_required','customer_hint']]
+ * @var array $covering  internal ticket ordr => order lines it covers
+ * @var array $readiness ticket ordr => materials check
+ * @var array $matNames  item_code => description (for shortages)
+ * @var ?string $asOf
  */
 require __DIR__ . '/_subnav.php';
 
 $today = date('Y-m-d');
-$pill = function (array $t) use ($today): string {
-    // NST is NORMAL for packaging — it only starts when its batch goes
-    // into BAT (Matt, 2026-10-29) — so no warning on MFPP rows.
-    if ($t['status'] === 'NST' && $t['context'] === 'MFPP') {
-        return '<span class="pill" title="Packaging starts when the batch goes into BAT">⏸ Waits for the batch (NST)</span>';
-    }
+$stuck = fn(array $t): bool => $t['status'] === 'BAT' && $t['bat_since'] !== null
+    && strtotime($t['bat_since']) < strtotime('-1 day');
+$pill = function (array $t) use ($stuck): string {
     $out = match ($t['status']) {
         'RLS' => '<span class="pill pill-active">✔ Released (RLS)</span>',
         'NST' => '<span class="pill pill-warn">⚠ Not released (NST)</span>',
         'BAT' => '<span class="pill pill-info">⏳ Closing out (BAT)</span>',
         default => '<span class="pill">' . e($t['status']) . '</span>',
     };
-    if ($t['status'] === 'BAT' && $t['bat_since'] !== null
-        && strtotime($t['bat_since']) < strtotime('-1 day')) {
+    if ($stuck($t)) {
         $out .= ' <span class="pill pill-danger">⚠ stuck in BAT &gt; 1 day</span>';
     }
     return $out;
 };
+// Pack status, compact: NST is packaging's NORMAL waiting state.
+$packGlyph = fn(array $p): string => match (true) {
+    $p['status'] === 'NST' => '<span title="Starts when the batch goes into BAT">⏸</span>',
+    $p['status'] === 'RLS' => '<span title="Released">✔</span>',
+    $p['status'] === 'BAT' => '<span title="Closing out">⏳</span>',
+    default => '<span>' . e($p['status']) . '</span>',
+};
+
+$shortageLines = function (array $r, array $matNames): string {
+    $out = '';
+    foreach ($r['shortages'] as $s) {
+        $out .= '<div class="nowrap" title="' . e((string) ($matNames[$s['item_code']] ?? ''))
+            . ' — needs ' . fmt_number((float) $s['need'], 1) . ' ' . e($s['unit']) . '">'
+            . e($s['item_code']) . ' <span class="text-danger">−' . fmt_number((float) $s['short'], 1)
+            . ' ' . e($s['unit']) . '</span></div>';
+    }
+    return $out;
+};
+
+// A batch is "short" when the batch itself or any of its (checked) packs is.
+$batchShort = function (array $g) use ($readiness): bool {
+    foreach (array_merge($g['mfba'] !== null ? [$g['mfba']] : [], $g['packs']) as $t) {
+        if (($readiness[(int) $t['ordr']]['status'] ?? '') === 'short') {
+            return true;
+        }
+    }
+    return false;
+};
+$nShort = count(array_filter($batches, $batchShort));
 ?>
 <div class="card">
     <div class="toolbar">
         <div>
             <h2 class="card-title">Open batch tickets</h2>
             <div class="card-subtitle">
-                MFBA makes bulk ink; MFPP packages it. Inventory only moves when a ticket finishes
-                (BAT/CMP) — until then these are future supply.
-                <?php
-                // Count MASTER BATCH numbers, not rows (Matt, 2026-10-29).
-                $shortBatches = [];
-                foreach ($tickets as $tt) {
-                    $rr = $readiness[(int) $tt['ordr']] ?? null;
-                    if ($rr !== null && $rr['status'] === 'short') {
-                        $shortBatches[(int) ($tt['batch_ordr'] ?? $tt['ordr'])] = true;
-                    }
-                }
-                $nShort = count($shortBatches);
-                ?>
+                One line per batch; its packaging runs are listed on the line. Inventory only moves
+                when a ticket finishes (BAT/CMP) — until then these are future supply.
                 <?php if ($nShort > 0): ?>
                     <strong class="text-danger"><?= $nShort ?> batch<?= $nShort === 1 ? ' is' : 'es are' ?> short the materials needed to make <?= $nShort === 1 ? 'it' : 'them' ?>.</strong>
                 <?php endif; ?>
@@ -55,55 +72,85 @@ $pill = function (array $t) use ($today): string {
         <?php endif; ?>
     </div>
 
-    <?php if ($tickets === []): ?>
+    <?php if ($batches === []): ?>
         <div class="empty-state"><span class="empty-icon">📭</span>No open batch tickets.</div>
     <?php else: ?>
     <div class="table-scroll">
         <table class="table">
             <thead>
                 <tr>
-                    <th>Ticket #</th><th>Type</th><th>Status</th><th>Materials</th><th>Item</th><th>Description</th>
-                    <th class="text-right">Qty</th><th>Required</th><th>Cut for</th><th>Covering</th>
+                    <th>Batch #</th><th>Status</th><th>Materials</th><th>Bulk item</th><th>Description</th>
+                    <th class="text-right">Batch qty</th><th>Required</th><th>Packaging</th><th>Cut for</th><th>Covering</th>
                 </tr>
             </thead>
             <tbody>
-            <?php foreach ($tickets as $t):
-                $overdue = $t['date_required'] !== null && $t['date_required'] < $today;
+            <?php foreach ($batches as $g):
+                $m = $g['mfba'];
+                $overdue = $g['date_required'] !== null && $g['date_required'] < $today;
             ?>
                 <tr>
                     <td>
-                        <strong><?= (int) ($t['batch_ordr'] ?? $t['ordr']) ?></strong>
-                        <?php if ($t['context'] === 'MFPP' && !empty($t['batch_ordr']) && (int) $t['batch_ordr'] !== (int) $t['ordr']): ?>
-                            <div class="tag" title="Packaging order on the same batch ticket">pack <?= (int) $t['ordr'] ?></div>
+                        <strong><?= (int) $g['batch'] ?></strong>
+                        <?php if ($m === null): ?>
+                            <div class="tag" title="The bulk batch itself is finished or closed — only packaging is still open">batch done</div>
                         <?php endif; ?>
                     </td>
-                    <td><span class="tag"><?= e($t['context'] === 'MFBA' ? 'Bulk (MFBA)' : 'Packaging (MFPP)') ?></span></td>
-                    <td class="nowrap"><?= $pill($t) ?></td>
+                    <td class="nowrap"><?= $m !== null ? $pill($m) : '<span class="text-muted">—</span>' ?></td>
                     <td style="font-size:0.85rem;">
-                        <?php $r = $readiness[(int) $t['ordr']] ?? null; ?>
-                        <?php if ($r === null): ?>
+                        <?php
+                        $mr = $m !== null ? ($readiness[(int) $m['ordr']] ?? null) : null;
+                        $packShorts = [];
+                        foreach ($g['packs'] as $p) {
+                            $pr = $readiness[(int) $p['ordr']] ?? null;
+                            if ($pr !== null && $pr['status'] === 'short') {
+                                $packShorts[] = [$p, $pr];
+                            }
+                        }
+                        $anyChecked = $mr !== null || array_filter(array_map(
+                            fn($p) => $readiness[(int) $p['ordr']] ?? null, $g['packs']));
+                        ?>
+                        <?php if (!$anyChecked): ?>
                             <span class="text-muted" title="Materials check runs on the next sync">—</span>
-                        <?php elseif ($t['context'] === 'MFPP' && $t['status'] === 'NST' && $r['status'] !== 'short'): ?>
-                            <span class="text-muted" title="Checked once the packaging starts (when the batch goes into BAT)">— with the batch</span>
-                        <?php elseif ($r['status'] === 'short'): ?>
+                        <?php elseif (($mr !== null && $mr['status'] === 'short') || $packShorts !== []): ?>
                             <span class="pill pill-danger">⚠ Short materials</span>
-                            <?php foreach ($r['shortages'] as $s): ?>
-                                <div class="nowrap" title="<?= e((string) ($matNames[$s['item_code']] ?? '')) ?> — needs <?= fmt_number((float) $s['need'], 1) ?> <?= e($s['unit']) ?>">
-                                    <?= e($s['item_code']) ?> <span class="text-danger">−<?= fmt_number((float) $s['short'], 1) ?> <?= e($s['unit']) ?></span>
-                                </div>
+                            <?php if ($mr !== null && $mr['status'] === 'short') echo $shortageLines($mr, $matNames); ?>
+                            <?php foreach ($packShorts as [$p, $pr]): ?>
+                                <div class="text-muted" style="margin-top:0.15rem;">for <?= e($p['item_code']) ?>:</div>
+                                <?= $shortageLines($pr, $matNames) ?>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <span class="pill pill-active" title="<?= !empty($r['from_mfba']) ? 'Bulk comes from this batch; everything else is' : 'All materials are' ?> on hand">✔ On hand</span>
+                            <span class="pill pill-active" title="Everything this batch consumes is on hand">✔ On hand</span>
                         <?php endif; ?>
                     </td>
-                    <td class="nowrap"><?= e($t['item_code']) ?><?= $t['bulk_code'] ? '<div class="tag" title="Bulk consumed">' . e($t['bulk_code']) . '</div>' : '' ?></td>
-                    <td><?= e((string) ($t['description'] ?? '')) ?></td>
-                    <td class="text-right tabular"><?= fmt_number((float) $t['qty'], 1) ?> <?= e($t['unit']) ?></td>
-                    <td class="<?= $overdue ? 'text-danger' : '' ?>"><?= e(fmt_date($t['date_required'])) ?><?= $overdue ? ' ⚠' : '' ?></td>
-                    <td class="text-muted"><?= e((string) ($t['customer_hint'] ?? '')) ?></td>
+                    <td class="nowrap"><?= e($m['item_code'] ?? ($g['packs'][0]['bulk_code'] ?? '—')) ?></td>
+                    <td><?= e((string) ($m['description'] ?? ($g['packs'][0]['description'] ?? ''))) ?></td>
+                    <td class="text-right tabular"><?= $m !== null ? fmt_number((float) $m['qty'], 1) . ' ' . e($m['unit']) : '—' ?></td>
+                    <td class="<?= $overdue ? 'text-danger' : '' ?>"><?= e(fmt_date($g['date_required'])) ?><?= $overdue ? ' ⚠' : '' ?></td>
+                    <td style="font-size:0.85rem;">
+                        <?php if ($g['packs'] === []): ?>
+                            <span class="text-muted">— none yet</span>
+                        <?php else: ?>
+                            <?php foreach ($g['packs'] as $p): ?>
+                                <div class="nowrap" title="Packaging order <?= (int) $p['ordr'] ?>">
+                                    <?= $packGlyph($p) ?> <strong><?= e($p['item_code']) ?></strong>
+                                    <span class="text-muted"><?= fmt_number((float) $p['qty'], 1) ?> <?= e($p['unit']) ?></span>
+                                    <?php if ($stuck($p)): ?><span class="pill pill-danger">⚠ stuck in BAT</span><?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-muted"><?= e((string) ($g['customer_hint'] ?? '')) ?></td>
                     <td class="text-muted" style="font-size:0.85rem;">
-                        <?php if (!empty($covering[(int) $t['ordr']])): ?>
-                            <?php foreach ($covering[(int) $t['ordr']] as $cv): ?>
+                        <?php
+                        $cover = [];
+                        foreach (array_merge($m !== null ? [$m] : [], $g['packs']) as $t) {
+                            foreach ($covering[(int) $t['ordr']] ?? [] as $cv) {
+                                $cover[] = $cv;
+                            }
+                        }
+                        ?>
+                        <?php if ($cover !== []): ?>
+                            <?php foreach ($cover as $cv): ?>
                                 <div>Order <?= (int) $cv['ordr'] ?> (<?= e((string) $cv['bill_to_name']) ?>): <?= fmt_number($cv['qty'], 1) ?></div>
                             <?php endforeach; ?>
                         <?php else: ?>

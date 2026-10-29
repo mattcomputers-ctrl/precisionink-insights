@@ -186,6 +186,13 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     where the production plan could debit a pail count instead of bulk
     pounds. Containers stay in the materials check on purpose — running
     out of pails stops packaging just as surely as running out of ink.
+43. **Batch tickets page: ONE line per master batch** (Matt, 2026-10-29).
+    Packaging orders never get rows of their own — they are listed inside
+    the batch line (item, qty, compact status; the internal packaging
+    order number only in the tooltip). Orphan packaging (batch already
+    done/closed) keeps the batch number with a "batch done" tag. The
+    Excel export follows the same one-row-per-batch shape, packaging
+    joined into one cell. Covering orders aggregate across the group.
 
 ## Formerly-open items, now decided
 

@@ -297,9 +297,11 @@ class OrderReadinessController
             }
         }
 
+        $batches = $this->batchGroups($tickets);
+
         layout('order_readiness::tickets', [
             'pageTitle' => 'Batch tickets',
-            'tickets'   => $tickets,
+            'batches'   => $batches,
             'covering'  => $covering,
             'readiness' => $readiness,
             'matNames'  => $matNames,
@@ -475,35 +477,98 @@ class OrderReadinessController
     private function exportTickets(Database $db): array
     {
         $readiness = $this->ticketReadiness();
-        $rows = [];
-        foreach ($db->fetchAll(
+        $tickets = $db->fetchAll(
             "SELECT t.*, i.description FROM or_tickets t
              LEFT JOIN or_items i ON i.item_code = t.item_code
              ORDER BY t.date_required, t.ordr"
-        ) as $t) {
-            $r = $readiness[(int) $t['ordr']] ?? null;
-            $materials = '';
-            if ($r !== null) {
+        );
+
+        $shortText = fn(array $r): string => implode('; ', array_map(
+            fn($s) => $s['item_code'] . ' -' . rtrim(rtrim(number_format((float) $s['short'], 2, '.', ''), '0'), '.') . ' ' . $s['unit'],
+            $r['shortages']
+        ));
+        $statusWord = fn(string $s): string => match ($s) {
+            'RLS' => 'released', 'NST' => 'waits for the batch', 'BAT' => 'closing out', default => strtolower($s),
+        };
+
+        $rows = [];
+        foreach ($this->batchGroups($tickets) as $g) {
+            $m = $g['mfba'];
+
+            $materials = [];
+            $checked = false;
+            foreach (array_merge($m !== null ? [$m] : [], $g['packs']) as $t) {
+                $r = $readiness[(int) $t['ordr']] ?? null;
+                if ($r === null) {
+                    continue;
+                }
+                $checked = true;
                 if ($r['status'] === 'short') {
-                    $materials = 'Short: ' . implode('; ', array_map(
-                        fn($s) => $s['item_code'] . ' -' . rtrim(rtrim(number_format((float) $s['short'], 2, '.', ''), '0'), '.') . ' ' . $s['unit'],
-                        $r['shortages']
-                    ));
-                } elseif ($t['context'] === 'MFPP' && $t['status'] === 'NST') {
-                    $materials = 'With the batch';
-                } else {
-                    $materials = 'On hand';
+                    $materials[] = ($t['context'] === 'MFPP' ? 'for ' . $t['item_code'] . ': ' : '') . $shortText($r);
                 }
             }
+            $materialsText = !$checked ? '' : ($materials === [] ? 'On hand' : 'Short: ' . implode(' | ', $materials));
+
+            $packsText = implode("\n", array_map(
+                fn($p) => $p['item_code'] . ' ' . rtrim(rtrim(number_format((float) $p['qty'], 2, '.', ''), '0'), '.')
+                    . ' ' . $p['unit'] . ' (' . $statusWord((string) $p['status']) . ')',
+                $g['packs']
+            ));
+
             $rows[] = [
-                $t['batch_ordr'] ?? $t['ordr'], $t['context'], $t['status'], $t['item_code'], $t['description'],
-                $t['qty'], $t['unit'], $t['date_required'], $t['date_released'], $t['customer_hint'], $materials,
+                $g['batch'],
+                $m !== null ? $m['status'] : 'batch done',
+                $materialsText,
+                $m['item_code'] ?? ($g['packs'][0]['bulk_code'] ?? ''),
+                $m['description'] ?? ($g['packs'][0]['description'] ?? ''),
+                $m !== null ? $m['qty'] : '',
+                $m !== null ? $m['unit'] : '',
+                $g['date_required'],
+                $packsText,
+                $g['customer_hint'],
             ];
         }
-        return ['Open batch tickets', ['Ticket #', 'Type', 'Status', 'Item', 'Description', 'Qty', 'Unit', 'Required', 'Released', 'Cut for', 'Materials'], $rows];
+        return ['Open batch tickets', ['Batch #', 'Status', 'Materials', 'Bulk item', 'Description', 'Batch qty', 'Unit', 'Required', 'Packaging', 'Cut for'], $rows];
     }
 
     /* ── Shared helpers ────────────────────────────────────────── */
+
+    /**
+     * One entry per MASTER BATCH; its packaging orders live inside the
+     * entry, never as rows of their own (Matt, 2026-10-29). Sorted by
+     * earliest required date in the group, then batch number.
+     *
+     * @return list<array{batch:int,mfba:?array,packs:list<array>,date_required:?string,customer_hint:?string}>
+     */
+    private function batchGroups(array $tickets): array
+    {
+        $groups = [];
+        foreach ($tickets as $t) {
+            $key = (int) ($t['batch_ordr'] ?? $t['ordr']);
+            $groups[$key] ??= ['batch' => $key, 'mfba' => null, 'packs' => []];
+            if ($t['context'] === 'MFBA') {
+                $groups[$key]['mfba'] = $t;
+            } else {
+                $groups[$key]['packs'][] = $t;
+            }
+        }
+        foreach ($groups as &$g) {
+            $dates = [];
+            $g['customer_hint'] = $g['mfba']['customer_hint'] ?? null;
+            foreach (array_merge($g['mfba'] !== null ? [$g['mfba']] : [], $g['packs']) as $t) {
+                if (!empty($t['date_required'])) {
+                    $dates[] = $t['date_required'];
+                }
+                $g['customer_hint'] ??= $t['customer_hint'];
+            }
+            $g['date_required'] = $dates === [] ? null : min($dates);
+        }
+        unset($g);
+        $batches = array_values($groups);
+        usort($batches, fn($a, $b) =>
+            [$a['date_required'] ?? '9999', $a['batch']] <=> [$b['date_required'] ?? '9999', $b['batch']]);
+        return $batches;
+    }
 
     /** How many MASTER BATCHES are short materials (Matt: count batches, not rows). */
     private function shortBatchCount(): int

@@ -154,8 +154,12 @@ ok(str_contains($frag['body'], 'Needs 10 lb'), 'plain-English reason rendered');
 $page = $ship->get('/orders/by-item');
 ok($page['status'] === 200 && str_contains($page['body'], 'A-50'), 'by-item page shows demand');
 $page = $ship->get('/orders/tickets');
-ok($page['status'] === 200 && str_contains($page['body'], '7001') && str_contains($page['body'], 'PRIORITY CO'),
-    'tickets page shows ticket + cut-for hint');
+ok($page['status'] === 200 && str_contains($page['body'], '7000') && str_contains($page['body'], 'PRIORITY CO'),
+    'tickets page shows the master batch + cut-for hint');
+ok(str_contains($page['body'], 'Packaging order 7001'),
+    'the pack is listed INSIDE the master batch line');
+ok(!str_contains($page['body'], '<strong>7001</strong>'),
+    'the pack never gets a batch line of its own');
 
 /* ── Materials check surfaces (Matt, 2026-10-29) ────────────────── */
 echo "== materials check\n";
@@ -174,8 +178,10 @@ ok(str_contains($frag['body'], 'VEC-7'), 'drill-down names the missing material'
 
 $csv = $ship->get('/orders/export/tickets?format=csv');
 if ($csv['status'] === 200) {
-    ok(str_contains($csv['body'], 'Materials') && str_contains($csv['body'], 'Short: VEC-7'),
+    ok(str_contains($csv['body'], 'Materials') && str_contains($csv['body'], 'VEC-7 -12.5 lb'),
         'tickets export carries the materials column');
+    ok(str_contains($csv['body'], 'Batch #') && !str_contains($csv['body'], '7001,'),
+        'export is one row per master batch');
 } else {
     ok($csv['status'] === 404, 'shipping user without export permission gets a plain 404');
 }
