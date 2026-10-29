@@ -1,175 +1,122 @@
-# Precision Ink Insights — Executive Dashboard System
+# Precision Ink Insights
 
-A web-based, multi-tab executive analytics platform that pulls data from
-the existing CMS database (MSSQL on 10.10.10.11) and presents it to
-executives. Built to be installed on Ubuntu Server alongside (and
-independently of) the SDS system.
+In-house analytics and operations platform for Precision Ink Corporation.
+A **read-only companion** to the Mar-Kov CMS system — Insights never writes
+to CMS.
 
-The first (and currently only) tab is **Margin Watchdog**, a side-by-side
-two-date-range comparison of revenue, packed-cost, and dollars-over-cost
-at the company, Bill To, and item-alias levels.
+## The tools
 
-The codebase is structured so additional tabs can be added cleanly later —
-each tab is a self-contained Module with its own routes, views, and
-permission key. See SCHEMA_NOTES.md for how to add one.
+| Tool | What it does |
+|---|---|
+| **Order Readiness** | What can ship right now, what ships once a batch finishes (and which ticket), what's short, discontinued items with open orders, drag-and-drop order priority, order notes (kept forever, searchable), and a production plan of items near/below minimum stock. |
+| **Margin Watchdog** | Compare margins and packed costs between two date ranges — company → customer → item, with quantity-weighted averages, colour thresholds and Excel export. Executives only by default. |
+| **Scheduling** | Need-driven mill schedule: what to make, on which mill, in colour-ladder order, with dry-grind handling. |
 
----
+Platform features: users/groups with named permissions (anything you can't
+use is invisible, not greyed out), per-group module visibility and landing
+pages, a background CMS sync engine with an always-visible status bar,
+blackout windows for backups, a CMS kill switch, light/dark themes, and a
+one-script installer/updater with automatic rollback.
 
-## Stack
+## Requirements
 
-- **OS:** Ubuntu Server 20.04, 22.04, or 24.04
-- **Web server:** Apache 2 with mod_rewrite + mod_php
-- **Local DB:** MariaDB / MySQL — auth, preferences, presets, audit
-- **CMS DB:** SQL Server (read-only, via `pdo_dblib`/FreeTDS on Linux)
-- **Language:** PHP 8.1+ with PSR-4 autoloading via Composer
-- **Excel export:** `phpoffice/phpspreadsheet`
+- Ubuntu Server 22.04 or 24.04 LTS, with network access to the CMS SQL
+  Server (default `10.10.10.11:1433`) and to GitHub.
+- A read-only CMS SQL login (the shared `sds_readonly` login is fine).
 
----
+Everything else (Apache, MariaDB, PHP, the SQL Server driver) is installed
+by the script below.
 
-## Quick install (automated)
+## Fresh install
 
-The `install-ubuntu.sh` script does everything — installs Apache, MariaDB,
-PHP 8.x with the SQL Server PDO driver, sets up the database, runs
-migrations, creates an admin user, and configures the Apache vhost.
-
-On a fresh Ubuntu Server:
+On a brand-new Ubuntu Server, as a user who can `sudo`:
 
 ```bash
-# Copy this directory onto the target server, e.g. to /tmp/pii
-sudo bash /tmp/pii/install-ubuntu.sh
+curl -fsSL https://raw.githubusercontent.com/mattcomputers-ctrl/precisionink-insights/main/install.sh | sudo bash
 ```
 
-The script will prompt for:
+The installer asks for an admin username/password and (optionally) the CMS
+connection — you can skip CMS and set it later in **Admin → CMS & Sync**.
+It then installs packages, creates the database, migrates, configures
+Apache, starts the sync worker service, sets up nightly backups
+(03:30, 30 days kept) and log rotation, and prints the URL to open.
 
-- Install directory (default `/var/www/precision-ink-insights`)
-- MariaDB root password (leave blank for socket auth on a fresh install)
-- Local DB name / user / password (defaults sensible)
-- Server IP / hostname for the Apache vhost
-- Initial admin username + password
-- CMS SQL Server host, port, database name, read-only credentials
+Unattended install (no prompts):
 
-When it finishes you can log in at `http://<server-ip>` using the admin
-account you specified.
-
----
-
-## Manual install (advanced)
-
-If you'd rather wire it up yourself:
-
-1. Install dependencies:
-   ```bash
-   sudo apt install apache2 mariadb-server \
-        php8.1 php8.1-cli php8.1-mysql php8.1-xml php8.1-mbstring \
-        php8.1-curl php8.1-zip php8.1-intl php8.1-bcmath \
-        php8.1-sybase libapache2-mod-php8.1 \
-        composer unzip
-   sudo a2enmod rewrite headers
-   ```
-2. Place the project at `/var/www/precision-ink-insights`, owned by
-   `www-data:www-data`.
-3. Run `composer install --no-dev -o` in the project root.
-4. Copy `config/config.example.php` → `config/config.php` and edit. The
-   important fields are `db.*` (local MariaDB) and `cms_db.*` (CMS MSSQL).
-5. Run migrations: `php migrations/migrate.php`.
-6. Create your initial admin user (see "Admin user setup" below).
-7. Add an Apache virtual host that points `DocumentRoot` to the
-   `public/` directory and allows `.htaccess` overrides.
-
----
-
-## Admin user setup (manual)
-
-If you didn't use the installer:
-
-```sql
--- Hash the password with PHP first
--- $ php -r "echo password_hash('YourPassword', PASSWORD_ARGON2ID), PHP_EOL;"
--- Then run:
-INSERT INTO users (username, email, password_hash, display_name, is_active)
-VALUES ('admin', 'admin@example.com',
-        '<paste hash here>', 'Administrator', 1);
-
-INSERT INTO user_group_members (user_id, group_id)
-SELECT u.id, g.id
-FROM users u, permission_groups g
-WHERE u.username = 'admin' AND g.name = 'Administrators';
+```bash
+sudo INSIGHTS_ADMIN_USER=admin INSIGHTS_ADMIN_PASS='choose-a-long-password' bash install.sh --unattended
 ```
 
-The `Administrators` and `Standard Users` groups are seeded by the
-initial migration.
+## Updating an existing server
 
----
+```bash
+sudo insights-update
+```
 
-## Configuration
+(or `sudo bash /var/www/precision-ink-insights/update.sh` — the old
+command still works). The update backs up code + database first, pulls the
+latest code, runs migrations and the full test suite — **and rolls itself
+back automatically if anything fails**, leaving the previous version
+running. `sudo insights-update --check` just reports whether an update
+exists. Admins can also run updates and backups from
+**Admin → System settings** in the browser.
 
-`config/config.php` is the only file you need to edit:
+### First update onto the 2.0 platform (one-time)
 
-| Section    | Notes |
-|------------|-------|
-| `app.url`  | Public URL (used in absolute links) |
-| `db.*`     | Local MariaDB — auth, presets, audit |
-| `cms_db.*` | Read-only MSSQL — host, port, name, user, password. Margin Watchdog won't run if this is missing or contains `CHANGE_ME`. |
+The server that pre-dates the installer upgrades in place — users, saved
+presets and settings all survive:
 
-The CMS connection uses PDO. On Linux that means the `dblib` driver
-(FreeTDS); on Windows it can use `sqlsrv`. The CMSDatabase class probes
-for whichever is available.
+```bash
+cd /var/www/precision-ink-insights
+sudo bash update.sh
+```
 
----
+then run the new installer once so the sync worker service, backup timer
+and privileged helper get installed:
 
-## Adding new tabs (high level)
+```bash
+sudo bash /var/www/precision-ink-insights/install.sh
+```
 
-Each tab is a "Module". Add one in three steps:
+After that, `sudo insights-update` is the only command you need.
 
-1. Create `src/Modules/MyTab/MyTabModule.php` extending `\PII\Core\Module`:
-   ```php
-   class MyTabModule extends \PII\Core\Module {
-       public function key(): string      { return 'my_tab'; }
-       public function name(): string     { return 'My Tab'; }
-       public function basePath(): string { return '/my-tab'; }
-       public function icon(): string     { return '📊'; }
-       public function registerRoutes(\PII\Core\Router $r): void {
-           $r->get('/my-tab', MyTabController::class . '@index');
-       }
-   }
-   ```
-2. Register it in `src/Core/App.php` → `buildModuleRegistry()`.
-3. Optional: in `/admin/groups`, grant the new module's permission key to
-   the relevant groups.
+## Where things live
 
-The tab nav, permission middleware, and router pick up the new module
-automatically.
+| What | Where |
+|---|---|
+| Application | `/var/www/precision-ink-insights` |
+| Configuration (DB + CMS credentials) | `config/config.php`, `config/cms.local.php` (both gitignored) |
+| App logs | `storage/logs/` (rotated daily, 14 days) |
+| Apache logs | `/var/log/apache2/precision-ink-insights-*.log` |
+| Sync worker | `insights-sync-worker.service` → `journalctl -u insights-sync-worker` or `storage/logs/sync-worker.log` |
+| Nightly DB backups | `/var/backups/insights/` (snapshot tables excluded — the next sync rebuilds them) |
+| Privileged helper | `/usr/local/sbin/insights-helper` (the only thing the web app may sudo) |
 
-See **SCHEMA_NOTES.md** for the documented CMS join patterns to reuse.
+## Development
 
----
+No PHP needed on the dev machine — everything runs through Docker:
 
-## Maintenance
+```bash
+# Unit tests (pure engines + the Margin Watchdog regression fixtures)
+docker run --rm -v "$PWD":/app -w /app php:8.3-cli php tests/run.php
 
-- **Logs:** application errors land in Apache's error log
-  (`/var/log/apache2/precision-ink-insights-error.log` if you used the
-  installer). The audit log lives in the `audit_log` MySQL table and is
-  viewable at `/admin/audit-log`.
-- **Backups:** the local MySQL database is small (only auth/prefs/audit) —
-  a nightly `mysqldump` is sufficient. The CMS database is the source of
-  truth for analytics; we never write to it.
-- **Updating:** pull new code, run `composer install --no-dev -o`, then
-  `php migrations/migrate.php`.
+# Full integration suite: throwaway MariaDB + the real app over HTTP,
+# permission crawl as every seeded group, sync engine flows, Order
+# Readiness flows (priority, notes, marks, exports)
+sh tests/integration/run-local.sh
+```
 
----
+Key docs: [SCHEMA_NOTES.md](SCHEMA_NOTES.md) (CMS data sources and traps),
+[docs/CMS_DATA_MAP.md](docs/CMS_DATA_MAP.md) (Order Readiness queries,
+verified live), [docs/DECISIONS.md](docs/DECISIONS.md) (why things are the
+way they are), [docs/SPEC-order-readiness.md](docs/SPEC-order-readiness.md)
+(the build spec). The Margin Watchdog regression fixtures under
+`tests/fixtures/margin-watchdog/` are a hard gate: any change that alters
+its numbers fails the update.
 
-## Known TODOs
+## Uninstall
 
-- Per-day normalisation of unequal date ranges is intentionally out of
-  scope for v1.
-- Ship To breakdown is intentionally out of scope (Bill To only for v1).
-- If your CMS uses a different mechanism for voiding invoices than
-  `Trans.ReversedTrans`-pointing-to-original, update the filters in
-  [ShipmentService.php](src/Modules/MarginWatchdog/ShipmentService.php).
-  See SCHEMA_NOTES.md caveat #4.
-
----
-
-## License
-
-Internal — for use within the deploying company. Not redistributed.
+```bash
+sudo bash /var/www/precision-ink-insights/bin/uninstall          # keeps the database
+sudo bash /var/www/precision-ink-insights/bin/uninstall --purge  # deletes everything
+```

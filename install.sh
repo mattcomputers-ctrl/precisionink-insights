@@ -184,7 +184,7 @@ if [ $IS_UPDATE -eq 0 ]; then
 
     say "Installing packages (Apache, MariaDB, PHP)…"
     apt-get update -qq
-    apt-get install -y -qq apache2 mariadb-server mariadb-client unzip curl git openssl composer \
+    apt-get install -y -qq apache2 mariadb-server mariadb-client unzip curl git openssl composer cron logrotate \
         php php-cli php-mysql php-mbstring php-xml php-curl php-zip php-intl php-bcmath php-gd >/dev/null \
         || fail "Package install failed."
     a2enmod rewrite headers >/dev/null 2>&1 || true

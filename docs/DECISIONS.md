@@ -111,15 +111,43 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     search page. Notes are visible to everyone who can see orders; adding needs
     `orders.view`.
 
-## Open items to decide later (spec says "decide" — not yet decided)
+## 2026-10-29 — Step-9 installer decisions
 
-- Sync overall timeout (spec default 5 min) and per-step timeouts — set at step 4.
-- Whether Margin Watchdog keeps querying CMS live or moves to snapshots (§3) — leaning
-  **keep live** (date-range reports over years of history don't snapshot well; queries are
-  seconds-fast), decide at step 4 and record here.
-- Reactivated/newly-discontinued badge duration (spec default 14 days) — default stands
-  unless Matt objects.
-- Per-user landing-page override: admin-only for now (spec's own recommendation).
+33. **Install path stays `/var/www/precision-ink-insights`** (not the spec's
+    `/opt/insights`): the production server, its vhost, cron and muscle memory
+    already live there. "Migrating into the new layout" = adopting the existing
+    checkout in place.
+34. **`update.sh` is now a shim that execs `install.sh`** — re-running
+    install.sh IS the update (spec §5), with backup-first, migrations, the full
+    test suite and automatic rollback to the previous commit on any failure
+    (verified in a container: deliberate test break → rolled back, app kept
+    serving). `reset --hard origin/<branch>` is kept over `pull --ff-only`
+    because chmod-induced mode drift on the server used to block pulls.
+35. **pdo_sqlsrv is attempted (MS ODBC 18 + PECL) but failure falls back to
+    pdo_dblib with a loud warning** instead of aborting (spec said stop; Matt
+    chose the fallback in the step-1 review). `INSIGHTS_SKIP_SQLSRV=1` skips
+    the attempt.
+36. **Privileged helper** `/usr/local/sbin/insights-helper` with a strict verb
+    whitelist (update / backup / restart-services / restart-sync-worker /
+    set-cms-credentials via stdin JSON / set-network with validated args); the
+    only sudoers grant www-data gets. Backups exclude the or_* snapshot tables
+    (the next sync rebuilds them).
+37. **Sync cadence note:** the live-CMS test run completed in 2.7 s for the
+    full Order Readiness job — the 15-minute default interval is trivially
+    gentle on the CMS server.
+38. **Order priority reordering requires `production.mark`** (Production and
+    Administrators) — changing priority changes who gets stock, which is a
+    production-floor call.
+
+## Formerly-open items, now decided
+
+- **Margin Watchdog stays on live CMS queries** (date-range reports over years of
+  history don't snapshot well; its queries run in seconds). It pauses with a friendly
+  message during blackouts and under the kill switch, per §14 Q9.
+- Sync overall timeout: settings key `sync.timeout_seconds`, default 300 (spec's 5 min),
+  checked at step boundaries.
+- Reactivated/newly-discontinued badge duration: `or.badge_days`, default 14.
+- Per-user landing-page override: admin-only (set on the user's admin page).
 ## 2026-10-29 — Decisions from the step-1 review (Matt)
 
 16. **Keep Apache + mod_php; do NOT migrate to nginx + PHP-FPM.** The webserver has never
