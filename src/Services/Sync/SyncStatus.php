@@ -34,6 +34,18 @@ class SyncStatus
              ORDER BY sr.id ASC LIMIT 1"
         );
         if ($active) {
+            // A run that sits queued and never starts means the background
+            // worker is down — say so instead of showing "Updating…" forever.
+            if ($active['status'] === 'queued'
+                && time() - strtotime($active['created_at']) > 90) {
+                return $base + [
+                    'state'     => 'problem',
+                    'failed_at' => $active['created_at'],
+                    'error'     => "The update was requested but never started — the background worker "
+                        . "(insights-sync-worker service) doesn't seem to be running. "
+                        . "On the server: sudo systemctl restart insights-sync-worker",
+                ];
+            }
             $startedBy = $active['trigger_type'] === 'manual'
                 ? (($active['display_name'] ?: $active['username']) ?? 'someone')
                 : 'automatic schedule';

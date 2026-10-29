@@ -92,6 +92,48 @@ function csrf_field(): string
     return \PII\Core\CSRF::field();
 }
 
+/**
+ * The Insights logo: a colorful eye (inline SVG so it's crisp at any size
+ * and needs no extra request). $size is the rendered box in px.
+ */
+function insights_logo(int $size = 34): string
+{
+    $id = 'iris' . $size;   // unique gradient id per rendered size
+    return <<<SVG
+<svg width="{$size}" height="{$size}" viewBox="0 0 48 48" role="img" aria-label="Insights" style="display:block;">
+  <defs>
+    <linearGradient id="{$id}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.45" stop-color="#8b5cf6"/>
+      <stop offset="0.75" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 9 C37 9 45.5 24 45.5 24 C45.5 24 37 39 24 39 C11 39 2.5 24 2.5 24 C2.5 24 11 9 24 9 Z"
+        fill="#ffffff" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="24" cy="24" r="9.5" fill="url(#{$id})"/>
+  <circle cx="24" cy="24" r="4.2" fill="#101828"/>
+  <circle cx="27" cy="20.8" r="2" fill="#ffffff"/>
+</svg>
+SVG;
+}
+
+/**
+ * Cache-busted asset URL: /js/app.js → /js/app.js?v=<mtime>. Browsers may
+ * cache CSS/JS across deploys; the version flips automatically whenever
+ * the file changes on disk (every update), so users never run stale JS.
+ */
+function asset_url(string $path): string
+{
+    static $cache = [];
+    if (!isset($cache[$path])) {
+        $file = \PII\Core\App::basePath() . '/public/' . ltrim($path, '/');
+        $v = @filemtime($file) ?: 0;
+        $cache[$path] = '/' . ltrim($path, '/') . ($v ? '?v=' . $v : '');
+    }
+    return $cache[$path];
+}
+
 function csrf_token(): string
 {
     return \PII\Core\CSRF::token();

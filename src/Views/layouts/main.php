@@ -36,7 +36,8 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= e($pageTitle ?? $appName) ?> — <?= e($appName) ?></title>
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="<?= e(asset_url('css/app.css')) ?>">
+    <link rel="icon" type="image/svg+xml" href="<?= e(asset_url('favicon.svg')) ?>">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 </head>
 <body class="<?= e($bodyClasses) ?>">
@@ -45,7 +46,7 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
             <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">☰</button>
         <?php endif; ?>
         <a href="<?= e($homeUrl) ?>" class="brand">
-            <span class="brand-mark">PII</span>
+            <span class="brand-mark"><?= insights_logo(34) ?></span>
             <span class="brand-name"><?= e($appName) ?></span>
         </a>
         <?php if ($user): ?>
@@ -130,6 +131,6 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
         <?= $bodyContent ?? '' ?>
     </main>
 
-    <script src="/js/app.js"></script>
+    <script src="<?= e(asset_url('js/app.js')) ?>"></script>
 </body>
 </html>

@@ -9,6 +9,13 @@ foreach ($modules as $m) {
 }
 $last = count($groups) - 1;
 ?>
+<div class="toolbar">
+    <div class="flex gap-1">
+        <a href="/admin/users" class="btn btn-sm">Users</a>
+        <a href="/admin/groups" class="btn btn-sm btn-primary">Groups &amp; permissions</a>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header">
         <div>

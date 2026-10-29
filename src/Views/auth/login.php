@@ -4,13 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In — <?= e(app_name()) ?></title>
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="<?= e(asset_url('css/app.css')) ?>">
+    <link rel="icon" type="image/svg+xml" href="<?= e(asset_url('favicon.svg')) ?>">
 </head>
 <body class="login-page">
     <div class="login-container">
         <div class="login-header">
+            <div style="display:flex;justify-content:center;margin-bottom:0.6rem;"><?= insights_logo(56) ?></div>
             <h1><?= e(app_name()) ?></h1>
-            <p>Executive Dashboard System</p>
+            <p class="text-muted">Sign in to continue</p>
         </div>
 
         <?= flash_messages() ?>
