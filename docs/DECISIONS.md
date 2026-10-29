@@ -86,6 +86,31 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     Dev-box only (it seeds/deletes crawl_* users); it refuses to run unless the DB name
     contains "test". 350 checks green as of this entry.
 
+## 2026-10-29 — Step-6 data-map decisions (verified against live CMS; flagged for review)
+
+27. **Packaging tickets come from `Ordr`/`OrdDetail` directly** — the
+    `BatchingOrders` view covers MFBA only (0 of 97 open MFPP rows appear in it).
+    MFPP PK line = pack item produced; MFBA PK line = bulk produced.
+28. **"Available to ship" = `InventoryTotal.QtyUsable` summed across owners**
+    (SOH minus hold/restricted/unusable; ≈ SOH on today's data). SOH and hold
+    components are snapshotted and shown. ⚠ Review: Matt said "in inventory right
+    now" — if held/QC stock SHOULD count, switch to QtySOH (one-line change).
+29. **No CMS link from tickets to sales orders exists** (`BatchSheetDemand` is
+    MFBA→MFPP only), so allocation runs purely on the drag-and-drop order
+    priority; a ticket's `CustomerCode` shows as a "cut for …" hint. The spec's
+    "linked ticket serves its order first" rule is therefore inert until/unless
+    such a link appears in CMS.
+30. **Remaining qty on a line = `QtyReqd − QtyUsed` on `IsOpen=1` lines**;
+    CMS's own `QtyCommitted` is displayed but not used for allocation (Matt's
+    §14 Q4: Insights allocates by its own priority list).
+31. **Units:** all open order lines are `lb` today; the coverage engine requires
+    matching units and reports (rather than converts) a mismatch.
+32. **Order notes** (Matt, 2026-10-29): free-text notes can be attached to any
+    order, keyed by CMS order number in the Insights DB (`or_order_notes`), kept
+    forever — searchable later even after the order completes, incl. a notes
+    search page. Notes are visible to everyone who can see orders; adding needs
+    `orders.view`.
+
 ## Open items to decide later (spec says "decide" — not yet decided)
 
 - Sync overall timeout (spec default 5 min) and per-step timeouts — set at step 4.
