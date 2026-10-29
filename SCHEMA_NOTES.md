@@ -158,6 +158,16 @@ display — the user is just warned.
 
 ## 3. Local MySQL schema (this app, not CMS)
 
+Since migration 009 (named permissions): `group_permission_grants (group_id,
+permission)` holds per-group named grants (a user's permissions are the union
+across groups; admin groups bypass); `group_module_visibility` hides a module's
+existence from a group (hidden beats granted, admins excepted);
+`permission_groups.priority` + `.default_module` decide the post-login landing
+page; `users` gained `must_change_password`, `failed_logins`, `lockout_until`,
+`landing_module`. The old `group_permissions` (page_key/read/full) table is
+retained unused for rollback. Permission keys are declared by module manifests
+(`Module::permissions()`) plus the core set in `PermissionCatalog`.
+
 Migrations live in `migrations/*.sql`. Tables this app owns:
 
 | Table                  | Purpose |

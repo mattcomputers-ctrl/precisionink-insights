@@ -8,11 +8,70 @@ use PII\Core\App;
 use PII\Core\CSRF;
 use PII\Core\Database;
 use PII\Models\User;
+use PII\Services\PermissionCatalog;
+use PII\Services\PermissionService;
 
 require_once dirname(__DIR__) . '/Helpers/layout.php';
 
 class AdminController
 {
+    /* ------------------------------------------------------------------
+     *  Guards and audit helpers
+     * ----------------------------------------------------------------*/
+
+    /** Count active admin users other than $excludeUserId. */
+    private function otherActiveAdmins(int $excludeUserId): int
+    {
+        $row = Database::getInstance()->fetch(
+            "SELECT COUNT(DISTINCT u.id) AS n
+             FROM users u
+             JOIN user_group_members ugm ON ugm.user_id = u.id
+             JOIN permission_groups pg   ON pg.id = ugm.group_id
+             WHERE pg.is_admin = 1 AND u.is_active = 1 AND u.id <> ?",
+            [$excludeUserId]
+        );
+        return (int) ($row['n'] ?? 0);
+    }
+
+    /**
+     * Throw if applying $newActive/$newGroupIds to $userId would leave the
+     * system without a single active administrator (spec §2.3: the
+     * bootstrap admin can only be demoted/deactivated by ANOTHER admin —
+     * and never the last one).
+     */
+    private function assertAdminRemains(int $userId, bool $newActive, array $newGroupIds): void
+    {
+        if (!PermissionService::isAdminUser($userId)) {
+            return; // target isn't an admin; can't reduce admin coverage
+        }
+        $staysAdmin = false;
+        if ($newActive && $newGroupIds !== []) {
+            $in  = implode(',', array_fill(0, count($newGroupIds), '?'));
+            $row = Database::getInstance()->fetch(
+                "SELECT 1 FROM permission_groups WHERE is_admin = 1 AND id IN ({$in}) LIMIT 1",
+                array_map('intval', $newGroupIds)
+            );
+            $staysAdmin = (bool) $row;
+        }
+        if (!$staysAdmin && $this->otherActiveAdmins($userId) === 0) {
+            throw new \RuntimeException(
+                'This change would leave the system with no active administrator.'
+            );
+        }
+    }
+
+    private function audit(string $entityType, ?string $entityId, string $action, array $details): void
+    {
+        Database::getInstance()->insert('audit_log', [
+            'user_id'     => current_user_id(),
+            'entity_type' => $entityType,
+            'entity_id'   => $entityId,
+            'action'      => $action,
+            'details'     => json_encode($details, JSON_UNESCAPED_SLASHES),
+            'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    }
+
     /* ------------------------------------------------------------------
      *  Users
      * ----------------------------------------------------------------*/
@@ -35,7 +94,7 @@ class AdminController
     public function createUser(): void
     {
         $groups = Database::getInstance()->fetchAll(
-            "SELECT id, name, is_admin FROM permission_groups ORDER BY name"
+            "SELECT id, name, is_admin FROM permission_groups ORDER BY priority, name"
         );
 
         layout('admin/users/form', [
@@ -43,6 +102,8 @@ class AdminController
             'user'      => null,
             'groups'    => $groups,
             'memberOf'  => [],
+            'modules'   => App::modules()->all(),
+            'effective' => null,
         ]);
     }
 
@@ -52,14 +113,20 @@ class AdminController
 
         try {
             $id = User::create([
-                'username'     => $_POST['username']     ?? '',
-                'email'        => $_POST['email']        ?? '',
-                'display_name' => $_POST['display_name'] ?? '',
-                'password'     => $_POST['password']     ?? '',
-                'is_active'    => isset($_POST['is_active']) ? 1 : 0,
+                'username'             => $_POST['username']     ?? '',
+                'email'                => $_POST['email']        ?? '',
+                'display_name'         => $_POST['display_name'] ?? '',
+                'password'             => $_POST['password']     ?? '',
+                'is_active'            => isset($_POST['is_active']) ? 1 : 0,
+                'must_change_password' => isset($_POST['must_change_password']) ? 1 : 0,
+                'landing_module'       => $this->validLandingModule($_POST['landing_module'] ?? ''),
             ]);
             $groupIds = $_POST['groups'] ?? [];
             User::setGroups($id, is_array($groupIds) ? $groupIds : []);
+            $this->audit('user', (string) $id, 'create', [
+                'username' => $_POST['username'] ?? '',
+                'groups'   => array_values(is_array($groupIds) ? $groupIds : []),
+            ]);
             $_SESSION['_flash']['success'] = 'User created.';
             redirect('/admin/users');
         } catch (\Throwable $e) {
@@ -76,7 +143,7 @@ class AdminController
             $_SESSION['_flash']['error'] = 'User not found.';
             redirect('/admin/users');
         }
-        $groups   = Database::getInstance()->fetchAll("SELECT id, name, is_admin FROM permission_groups ORDER BY name");
+        $groups   = Database::getInstance()->fetchAll("SELECT id, name, is_admin FROM permission_groups ORDER BY priority, name");
         $memberOf = array_column(User::getGroups((int) $id), 'id');
 
         layout('admin/users/form', [
@@ -84,6 +151,9 @@ class AdminController
             'user'      => $user,
             'groups'    => $groups,
             'memberOf'  => $memberOf,
+            'modules'   => App::modules()->all(),
+            'effective' => PermissionService::effectiveForUser((int) $id),
+            'permLabels' => PermissionCatalog::all(),
         ]);
     }
 
@@ -93,11 +163,21 @@ class AdminController
         $userId = (int) $id;
 
         try {
+            $before    = User::findById($userId) ?? [];
+            $beforeGrp = array_column(User::getGroups($userId), 'id');
+
+            $newActive = isset($_POST['is_active']);
+            $groupIds  = $_POST['groups'] ?? [];
+            $groupIds  = array_map('intval', is_array($groupIds) ? $groupIds : []);
+            $this->assertAdminRemains($userId, $newActive, $groupIds);
+
             $data = [
-                'username'     => $_POST['username']     ?? null,
-                'email'        => $_POST['email']        ?? null,
-                'display_name' => $_POST['display_name'] ?? null,
-                'is_active'    => isset($_POST['is_active']) ? 1 : 0,
+                'username'             => $_POST['username']     ?? null,
+                'email'                => $_POST['email']        ?? null,
+                'display_name'         => $_POST['display_name'] ?? null,
+                'is_active'            => $newActive ? 1 : 0,
+                'must_change_password' => isset($_POST['must_change_password']) ? 1 : 0,
+                'landing_module'       => $this->validLandingModule($_POST['landing_module'] ?? ''),
             ];
             // Skip blank field updates
             foreach (['username', 'display_name'] as $k) {
@@ -110,9 +190,23 @@ class AdminController
             }
 
             User::updateUser($userId, $data);
+            User::setGroups($userId, $groupIds);
+            PermissionService::flushMemo();
 
-            $groupIds = $_POST['groups'] ?? [];
-            User::setGroups($userId, is_array($groupIds) ? $groupIds : []);
+            $this->audit('user', (string) $userId, 'update', [
+                'before' => [
+                    'is_active' => $before['is_active'] ?? null,
+                    'groups'    => $beforeGrp,
+                    'landing'   => $before['landing_module'] ?? null,
+                ],
+                'after' => [
+                    'is_active' => $newActive ? 1 : 0,
+                    'groups'    => $groupIds,
+                    'landing'   => $data['landing_module'] ?? null,
+                    'password_reset'  => !empty($_POST['password']),
+                    'must_change_pwd' => isset($_POST['must_change_password']),
+                ],
+            ]);
 
             $_SESSION['_flash']['success'] = 'User updated.';
             redirect('/admin/users');
@@ -131,9 +225,27 @@ class AdminController
             $_SESSION['_flash']['error'] = 'You cannot delete your own account.';
             redirect('/admin/users');
         }
+        try {
+            $this->assertAdminRemains($userId, false, []);
+        } catch (\Throwable $e) {
+            $_SESSION['_flash']['error'] = $e->getMessage();
+            redirect('/admin/users');
+        }
+        $before = User::findById($userId);
         User::delete($userId);
+        $this->audit('user', (string) $userId, 'delete', ['username' => $before['username'] ?? null]);
         $_SESSION['_flash']['success'] = 'User deleted.';
         redirect('/admin/users');
+    }
+
+    /** Landing override must name a registered module (or be empty). */
+    private function validLandingModule(string $key): ?string
+    {
+        $key = trim($key);
+        if ($key === '') {
+            return null;
+        }
+        return App::modules()->get($key) !== null ? $key : null;
     }
 
     /* ------------------------------------------------------------------
@@ -143,25 +255,28 @@ class AdminController
     public function groups(): void
     {
         $groups = Database::getInstance()->fetchAll(
-            "SELECT pg.id, pg.name, pg.description, pg.is_admin,
+            "SELECT pg.id, pg.name, pg.description, pg.is_admin, pg.priority, pg.default_module,
                     (SELECT COUNT(*) FROM user_group_members ugm WHERE ugm.group_id = pg.id) AS member_count
              FROM permission_groups pg
-             ORDER BY pg.name"
+             ORDER BY pg.priority, pg.id"
         );
 
         layout('admin/groups/index', [
             'pageTitle' => 'Permission groups',
             'groups'    => $groups,
+            'modules'   => App::modules()->all(),
         ]);
     }
 
     public function createGroup(): void
     {
         layout('admin/groups/form', [
-            'pageTitle'   => 'New permission group',
-            'group'       => null,
-            'permissions' => [],
-            'modules'     => App::modules()->all(),
+            'pageTitle'     => 'New permission group',
+            'group'         => null,
+            'grants'        => [],
+            'hiddenModules' => [],
+            'modules'       => App::modules()->all(),
+            'catalog'       => PermissionCatalog::grouped(),
         ]);
     }
 
@@ -176,11 +291,13 @@ class AdminController
         }
         try {
             $id = (int) $db->insert('permission_groups', [
-                'name'        => $name,
-                'description' => trim($_POST['description'] ?? ''),
-                'is_admin'    => isset($_POST['is_admin']) ? 1 : 0,
+                'name'           => $name,
+                'description'    => trim($_POST['description'] ?? ''),
+                'is_admin'       => isset($_POST['is_admin']) ? 1 : 0,
+                'priority'       => 1 + (int) ($db->fetch("SELECT MAX(priority) AS p FROM permission_groups")['p'] ?? 0),
+                'default_module' => null,
             ]);
-            $this->savePermissions($id, $_POST['permissions'] ?? []);
+            $this->saveGroupConfig($id, null);
             $_SESSION['_flash']['success'] = 'Group created.';
             redirect('/admin/groups');
         } catch (\Throwable $e) {
@@ -197,15 +314,22 @@ class AdminController
             $_SESSION['_flash']['error'] = 'Group not found.';
             redirect('/admin/groups');
         }
-        $permRows = $db->fetchAll("SELECT page_key, access_level FROM group_permissions WHERE group_id = ?", [(int) $id]);
-        $perms = [];
-        foreach ($permRows as $r) $perms[$r['page_key']] = $r['access_level'];
+
+        $grants = array_column($db->fetchAll(
+            "SELECT permission FROM group_permission_grants WHERE group_id = ?", [(int) $id]
+        ), 'permission');
+
+        $hiddenModules = array_column($db->fetchAll(
+            "SELECT module_key FROM group_module_visibility WHERE group_id = ? AND is_hidden = 1", [(int) $id]
+        ), 'module_key');
 
         layout('admin/groups/form', [
-            'pageTitle'   => 'Edit group — ' . $group['name'],
-            'group'       => $group,
-            'permissions' => $perms,
-            'modules'     => App::modules()->all(),
+            'pageTitle'     => 'Edit group — ' . $group['name'],
+            'group'         => $group,
+            'grants'        => $grants,
+            'hiddenModules' => $hiddenModules,
+            'modules'       => App::modules()->all(),
+            'catalog'       => PermissionCatalog::grouped(),
         ]);
     }
 
@@ -219,37 +343,192 @@ class AdminController
             $_SESSION['_flash']['error'] = 'Group not found.';
             redirect('/admin/groups');
         }
+
+        // Demoting an admin group must not strand the system without admins.
+        if ((int) $group['is_admin'] === 1 && !isset($_POST['is_admin'])) {
+            $stillAdmin = $db->fetch(
+                "SELECT COUNT(DISTINCT u.id) AS n
+                 FROM users u
+                 JOIN user_group_members ugm ON ugm.user_id = u.id
+                 JOIN permission_groups pg   ON pg.id = ugm.group_id
+                 WHERE pg.is_admin = 1 AND pg.id <> ? AND u.is_active = 1",
+                [$gid]
+            );
+            if ((int) ($stillAdmin['n'] ?? 0) === 0) {
+                $_SESSION['_flash']['error'] = 'This change would leave the system with no active administrator.';
+                redirect('/admin/groups/' . $gid . '/edit');
+            }
+        }
+
         $db->update('permission_groups', [
             'name'        => trim($_POST['name'] ?? $group['name']),
             'description' => trim($_POST['description'] ?? ''),
             'is_admin'    => isset($_POST['is_admin']) ? 1 : 0,
         ], 'id = ?', [$gid]);
-        $this->savePermissions($gid, $_POST['permissions'] ?? []);
+
+        $this->saveGroupConfig($gid, $group);
         $_SESSION['_flash']['success'] = 'Group updated.';
+        redirect('/admin/groups');
+    }
+
+    /**
+     * POST /admin/groups/{id}/move (dir=up|down) — swap priority with the
+     * neighbouring group. Priority decides whose default module wins for
+     * users in several groups (lower number = higher priority).
+     */
+    public function moveGroup(string $id): void
+    {
+        CSRF::validateRequest();
+        $db  = Database::getInstance();
+        $gid = (int) $id;
+        $dir = ($_POST['dir'] ?? '') === 'up' ? 'up' : 'down';
+
+        $me = $db->fetch("SELECT id, priority FROM permission_groups WHERE id = ?", [$gid]);
+        if ($me) {
+            $op    = $dir === 'up' ? '<' : '>';
+            $order = $dir === 'up' ? 'DESC' : 'ASC';
+            $other = $db->fetch(
+                "SELECT id, priority FROM permission_groups
+                 WHERE priority {$op} ? OR (priority = ? AND id {$op} ?)
+                 ORDER BY priority {$order}, id {$order} LIMIT 1",
+                [(int) $me['priority'], (int) $me['priority'], $gid]
+            );
+            if ($other) {
+                // Swap; nudge apart if equal so the order is stable.
+                $a = (int) $me['priority'];
+                $b = (int) $other['priority'];
+                if ($a === $b) {
+                    $b += ($dir === 'up' ? 1 : -1);
+                }
+                $db->update('permission_groups', ['priority' => $b], 'id = ?', [$gid]);
+                $db->update('permission_groups', ['priority' => $a], 'id = ?', [(int) $other['id']]);
+                $this->audit('group', (string) $gid, 'move', ['dir' => $dir]);
+            }
+        }
         redirect('/admin/groups');
     }
 
     public function deleteGroup(string $id): void
     {
         CSRF::validateRequest();
-        Database::getInstance()->delete('permission_groups', 'id = ?', [(int) $id]);
+        $db  = Database::getInstance();
+        $gid = (int) $id;
+        $group = $db->fetch("SELECT * FROM permission_groups WHERE id = ?", [$gid]);
+        if (!$group) {
+            redirect('/admin/groups');
+        }
+
+        if ((int) $group['is_admin'] === 1) {
+            $otherAdmins = $db->fetch(
+                "SELECT COUNT(DISTINCT u.id) AS n
+                 FROM users u
+                 JOIN user_group_members ugm ON ugm.user_id = u.id
+                 JOIN permission_groups pg   ON pg.id = ugm.group_id
+                 WHERE pg.is_admin = 1 AND pg.id <> ? AND u.is_active = 1",
+                [$gid]
+            );
+            if ((int) ($otherAdmins['n'] ?? 0) === 0) {
+                $_SESSION['_flash']['error'] = 'Deleting this group would leave the system with no active administrator.';
+                redirect('/admin/groups');
+            }
+        }
+
+        $db->delete('permission_groups', 'id = ?', [$gid]);
+        $this->audit('group', (string) $gid, 'delete', ['name' => $group['name']]);
         $_SESSION['_flash']['success'] = 'Group deleted.';
         redirect('/admin/groups');
     }
 
-    private function savePermissions(int $groupId, array $perms): void
+    /**
+     * Save a group's permission grants, module visibility and default
+     * module from the submitted form, with a before/after audit entry.
+     *
+     * Grants: only permissions the catalog currently knows are touched —
+     * grants seeded for future modules (e.g. Order Readiness before it
+     * ships) are preserved untouched so they light up when the module
+     * registers.
+     */
+    private function saveGroupConfig(int $groupId, ?array $before): void
     {
         $db = Database::getInstance();
-        $db->delete('group_permissions', 'group_id = ?', [$groupId]);
-        foreach ($perms as $pageKey => $level) {
-            $level = in_array($level, ['none', 'read', 'full'], true) ? $level : 'none';
-            if ($level === 'none') continue;
-            $db->insert('group_permissions', [
-                'group_id'     => $groupId,
-                'page_key'     => $pageKey,
-                'access_level' => $level,
-            ]);
+
+        $known   = array_keys(PermissionCatalog::all());
+        $checked = $_POST['grants'] ?? [];
+        $checked = array_values(array_intersect(
+            is_array($checked) ? array_map('strval', array_keys($checked)) : [],
+            $known
+        ));
+
+        $beforeGrants = array_column($db->fetchAll(
+            "SELECT permission FROM group_permission_grants WHERE group_id = ?", [$groupId]
+        ), 'permission');
+        $beforeHidden = array_column($db->fetchAll(
+            "SELECT module_key FROM group_module_visibility WHERE group_id = ? AND is_hidden = 1", [$groupId]
+        ), 'module_key');
+
+        $db->beginTransaction();
+        try {
+            if ($known !== []) {
+                $in = implode(',', array_fill(0, count($known), '?'));
+                $db->delete('group_permission_grants', "group_id = ? AND permission IN ({$in})", array_merge([$groupId], $known));
+            }
+            foreach ($checked as $perm) {
+                $db->insert('group_permission_grants', ['group_id' => $groupId, 'permission' => $perm]);
+            }
+
+            // Module visibility: replace rows for registered modules.
+            $moduleKeys = array_map(fn($m) => $m->key(), App::modules()->all());
+            $hiddenPost = $_POST['hidden_modules'] ?? [];
+            $hiddenPost = is_array($hiddenPost) ? array_map('strval', array_keys($hiddenPost)) : [];
+            foreach ($moduleKeys as $mk) {
+                $db->delete('group_module_visibility', 'group_id = ? AND module_key = ?', [$groupId, $mk]);
+                if (in_array($mk, $hiddenPost, true)) {
+                    $db->insert('group_module_visibility', ['group_id' => $groupId, 'module_key' => $mk, 'is_hidden' => 1]);
+                }
+            }
+
+            // Default module: must be registered, not hidden from this
+            // group, and covered by the group's grants (admins exempt).
+            $default = trim((string) ($_POST['default_module'] ?? ''));
+            $valid   = null;
+            if ($default !== '') {
+                $module = App::modules()->get($default);
+                $isAdminGroup = isset($_POST['is_admin']);
+                if ($module !== null
+                    && !in_array($default, $hiddenPost, true)
+                    && ($isAdminGroup || in_array($module->permissionKey(), $checked, true))
+                ) {
+                    $valid = $default;
+                } elseif ($module === null && $default !== '') {
+                    // Not registered yet (e.g. order_readiness before step 7):
+                    // keep the stored value so it activates when the module ships.
+                    $valid = $default;
+                }
+            }
+            $db->update('permission_groups', ['default_module' => $valid], 'id = ?', [$groupId]);
+
+            $db->commit();
+        } catch (\Throwable $e) {
+            $db->rollback();
+            throw $e;
         }
+
+        PermissionService::flushMemo();
+
+        $this->audit('group', (string) $groupId, $before === null ? 'create' : 'update', [
+            'before' => $before === null ? null : [
+                'grants' => $beforeGrants,
+                'hidden' => $beforeHidden,
+                'default_module' => $before['default_module'] ?? null,
+                'is_admin' => $before['is_admin'] ?? null,
+            ],
+            'after' => [
+                'grants' => $checked,
+                'hidden' => $hiddenPost,
+                'default_module' => $valid,
+                'is_admin' => isset($_POST['is_admin']) ? 1 : 0,
+            ],
+        ]);
     }
 
     /* ------------------------------------------------------------------

@@ -148,6 +148,8 @@ class MarginWatchdogController
      */
     public function export(): void
     {
+        require_permission('margin.export', 'export');
+
         $userId = (int) current_user_id();
         $params = $this->resolveDateRanges();
         if (!$params['ready']) {

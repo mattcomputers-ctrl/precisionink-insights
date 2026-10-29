@@ -28,13 +28,22 @@ class SchedulingDataService
     /** Popularity window (days of shipment history). */
     public const POPULARITY_DAYS = 91;
 
-    private CMSDatabase $cms;
     private Database $db;
 
     public function __construct()
     {
-        $this->cms = CMSDatabase::getInstance();
-        $this->db  = Database::getInstance();
+        $this->db = Database::getInstance();
+    }
+
+    /**
+     * CMS connection, opened on first use. The constructor must stay
+     * CMS-free: pages that only read local config (the schedule page
+     * shell, settings) must render even when CMS is down or no SQL
+     * Server driver is installed.
+     */
+    private function cms(): CMSDatabase
+    {
+        return CMSDatabase::getInstance();
     }
 
     /**
@@ -71,7 +80,7 @@ class SchedulingDataService
                 OR COALESCE(SUM(it.QtyOnOrder), 0) <> 0
                 OR COALESCE(ms.MinimumStock, 0)     > 0
         ";
-        $rows = $this->cms->fetchAll($sql);
+        $rows = $this->cms()->fetchAll($sql);
 
         $out = [];
         foreach ($rows as $r) {
@@ -108,7 +117,7 @@ class SchedulingDataService
              WHERE pack.Context = 'PP'
                AND b.Unit = 'lb'
         ";
-        $rows = $this->cms->fetchAll($sql);
+        $rows = $this->cms()->fetchAll($sql);
 
         // Keep the ingredient with the largest QtyReqd per pack (the base ink ≈ 1.0/lb)
         $best = [];
@@ -164,7 +173,7 @@ class SchedulingDataService
               AND sd.DateShipped >= ?
             GROUP BY ISNULL(inv.ItemCode, sd.ItemName)
         ";
-        $rows = $this->cms->fetchAll($sql, [$start]);
+        $rows = $this->cms()->fetchAll($sql, [$start]);
 
         $byBulk = [];
         foreach ($rows as $r) {
@@ -187,7 +196,7 @@ class SchedulingDataService
              WHERE i.ItemCode LIKE ? AND i.ReplacedBy IS NULL
              ORDER BY i.ItemCode
         ";
-        return $this->cms->fetchAll($sql, [$q . '%']);
+        return $this->cms()->fetchAll($sql, [$q . '%']);
     }
 
     /* ------------------------------------------------------------------
@@ -351,7 +360,7 @@ class SchedulingDataService
                   JOIN CMS.dbo.Item ing        ON ing.Item  = rd.Item
                  WHERE b.ItemCode IN ({$ph})
             ";
-            foreach ($this->cms->fetchAll($sql, $chunk) as $row) {
+            foreach ($this->cms()->fetchAll($sql, $chunk) as $row) {
                 $bulk = (string) $row['bulk_code'];
                 if ($dry[$bulk] ?? false) continue;   // already at strongest tier
                 $ing = (string) $row['ingredient'];
@@ -423,7 +432,7 @@ class SchedulingDataService
              ORDER BY current_need_lbs DESC, bulk_code
         ";
         $out = [];
-        foreach ($this->cms->fetchAll($sql) as $r) {
+        foreach ($this->cms()->fetchAll($sql) as $r) {
             $out[] = [
                 'bulk'                  => (string) $r['bulk_code'],
                 'description'           => (string) ($r['bulk_desc'] ?? ''),

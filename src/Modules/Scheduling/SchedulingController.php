@@ -121,6 +121,7 @@ class SchedulingController
      */
     public function export(): void
     {
+        require_permission('export');
         CSRF::validateRequest();
 
         $raw = $_POST['schedule'] ?? '';
@@ -147,6 +148,7 @@ class SchedulingController
 
     public function settings(): void
     {
+        require_permission('scheduling.manage');
         $svc = new SchedulingDataService();
         $db  = Database::getInstance();
 
@@ -199,6 +201,7 @@ class SchedulingController
 
     public function saveDryGrind(): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         $svc = new SchedulingDataService();
         $svc->saveDryGrindPasses((int) ($_POST['dry_grind_passes'] ?? 3));
@@ -219,6 +222,7 @@ class SchedulingController
 
     public function deleteDryGrindTrigger(string $id): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         (new SchedulingDataService())->deleteDryGrindTrigger((int) $id);
         $_SESSION['_flash']['success'] = 'Trigger removed.';
@@ -227,6 +231,7 @@ class SchedulingController
 
     public function addMillTriggerAction(): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         $pattern = trim((string) ($_POST['new_pattern'] ?? ''));
         if ($pattern !== '') {
@@ -242,6 +247,7 @@ class SchedulingController
 
     public function deleteMillTriggerAction(string $id): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         (new SchedulingDataService())->deleteMillTrigger((int) $id);
         $_SESSION['_flash']['success'] = 'Milling trigger removed.';
@@ -250,6 +256,7 @@ class SchedulingController
 
     public function storeMill(): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         $this->saveMillFromPost(null);
         $_SESSION['_flash']['success'] = 'Mill added.';
@@ -258,6 +265,7 @@ class SchedulingController
 
     public function updateMill(string $id): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         $this->saveMillFromPost((int) $id);
         $_SESSION['_flash']['success'] = 'Mill updated.';
@@ -266,6 +274,7 @@ class SchedulingController
 
     public function deleteMill(string $id): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         Database::getInstance()->delete('sched_mills', 'id = ?', [(int) $id]);
         $_SESSION['_flash']['success'] = 'Mill deleted.';
@@ -302,6 +311,7 @@ class SchedulingController
 
     public function saveColorOrder(): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         $order = $_POST['color_order'] ?? [];
         try {
@@ -316,6 +326,7 @@ class SchedulingController
     /** GET /scheduling/settings/item-search?q=E10 → JSON matches from CMS */
     public function itemSearch(): void
     {
+        require_permission('scheduling.manage');
         $q = trim((string) ($_GET['q'] ?? ''));
         if (strlen($q) < 2) {
             json_response([]);
@@ -329,6 +340,7 @@ class SchedulingController
 
     public function saveItemConfig(): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         $code      = trim((string) ($_POST['bulk_item_code'] ?? ''));
         $color     = trim((string) ($_POST['color'] ?? ''));
@@ -368,6 +380,7 @@ class SchedulingController
 
     public function deleteItemConfig(): void
     {
+        require_permission('scheduling.manage');
         CSRF::validateRequest();
         $code = trim((string) ($_POST['bulk_item_code'] ?? ''));
         Database::getInstance()->delete('sched_item_config', 'bulk_item_code = ?', [$code]);

@@ -6,9 +6,13 @@
  */
 $appName = app_name();
 $user    = $_SESSION['_user'] ?? null;
-$modules = \PII\Core\App::modules()->all();
+// Hidden, not disabled: the nav only ever lists what this user may open.
+$modules = $user
+    ? \PII\Services\PermissionService::visibleModules((int) $user['id'])
+    : [];
 $uri     = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $active  = $activeKey ?? null;
+$homeUrl = $user ? landing_path() : '/';
 
 // Color preference
 $colorsOn = true;
@@ -32,7 +36,7 @@ if ($user) {
 </head>
 <body class="<?= $colorsOn ? '' : 'colors-off' ?>">
     <header class="topbar">
-        <a href="/" class="brand">
+        <a href="<?= e($homeUrl) ?>" class="brand">
             <span class="brand-mark">PII</span>
             <span><?= e($appName) ?></span>
         </a>
@@ -42,12 +46,19 @@ if ($user) {
             <?php if (!empty($user['is_admin'])): ?>
                 <span class="user-badge user-badge-admin">Admin</span>
             <?php endif; ?>
-            <a href="/preferences" class="btn btn-sm" title="Preferences">⚙ Preferences</a>
-            <?php if (!empty($user['is_admin'])): ?>
+            <?php if (user_can_see_module('margin_watchdog')): ?>
+                <a href="/preferences" class="btn btn-sm" title="Preferences">⚙ Preferences</a>
+            <?php endif; ?>
+            <?php if (user_can('admin.system')): ?>
                 <a href="/admin/settings" class="btn btn-sm" title="System settings">⚙ Settings</a>
+            <?php endif; ?>
+            <?php if (user_can('admin.users')): ?>
                 <a href="/admin/users" class="btn btn-sm">Users</a>
+            <?php endif; ?>
+            <?php if (user_can('admin.system')): ?>
                 <a href="/admin/audit-log" class="btn btn-sm">Audit</a>
             <?php endif; ?>
+            <a href="/password" class="btn btn-sm" title="Change password">Password</a>
             <a href="/logout" class="btn btn-sm">Logout</a>
         </div>
         <?php endif; ?>
@@ -62,8 +73,6 @@ if ($user) {
             $key  = $module->key();
             $base = $module->basePath();
             $isActive = ($active === $key) || str_starts_with($uri, $base);
-            $userId = (int) $user['id'];
-            if (!\PII\Services\PermissionService::canRead($userId, $module->permissionKey())) continue;
         ?>
             <a href="<?= e($base) ?>" class="tab-nav-item <?= $isActive ? 'active' : '' ?>">
                 <?php if ($module->icon() !== ''): ?>
@@ -73,7 +82,9 @@ if ($user) {
             </a>
         <?php endforeach; ?>
         <span class="tab-nav-spacer"></span>
-        <a href="/presets" class="tab-nav-aux <?= str_starts_with($uri, '/presets') ? 'active' : '' ?>">Presets</a>
+        <?php if (user_can_see_module('margin_watchdog')): ?>
+            <a href="/presets" class="tab-nav-aux <?= str_starts_with($uri, '/presets') ? 'active' : '' ?>">Presets</a>
+        <?php endif; ?>
     </nav>
     <?php endif; ?>
 

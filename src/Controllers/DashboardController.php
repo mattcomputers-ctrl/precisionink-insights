@@ -15,15 +15,14 @@ class DashboardController
 {
     public function index(): void
     {
-        $userId  = current_user_id();
-        $modules = App::modules()->all();
+        $userId     = (int) current_user_id();
+        $accessible = PermissionService::visibleModules($userId);
 
-        $accessible = [];
-        foreach ($modules as $module) {
-            if (PermissionService::canRead((int) $userId, $module->permissionKey())) {
-                $accessible[] = $module;
-            }
-        }
+        // The metric cards show revenue, packed cost % and inventory value —
+        // margin-sensitive numbers. Only users with margin.view get them;
+        // everyone else sees the dashboard as a tab launcher. (Interim rule
+        // until the step-5 Home redesign; recorded in DECISIONS.md.)
+        $showMetrics = PermissionService::can($userId, 'margin.view');
 
         // CMS-backed dashboard metrics. Wrapped in try/catch so a CMS
         // outage degrades the dashboard to a tab launcher rather than
@@ -32,7 +31,9 @@ class DashboardController
         $inventory = null;
         $cmsError  = null;
 
-        if (CMSDatabase::isConfigured()) {
+        if (!$showMetrics) {
+            // hidden, not disabled: no metrics, no CMS error banner either
+        } elseif (CMSDatabase::isConfigured()) {
             try {
                 $svc       = new DashboardService();
                 $shipments = $svc->yesterdayShipments();
@@ -45,11 +46,12 @@ class DashboardController
         }
 
         layout('dashboard/index', [
-            'pageTitle' => 'Dashboard',
-            'modules'   => $accessible,
-            'shipments' => $shipments,
-            'inventory' => $inventory,
-            'cmsError'  => $cmsError,
+            'pageTitle'   => 'Dashboard',
+            'modules'     => $accessible,
+            'showMetrics' => $showMetrics,
+            'shipments'   => $shipments,
+            'inventory'   => $inventory,
+            'cmsError'    => $cmsError,
         ]);
     }
 }

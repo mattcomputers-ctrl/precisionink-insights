@@ -55,9 +55,10 @@ Core routes (auth, dashboard, preferences, presets, admin) are wired directly in
 ## Auth and permissions today
 
 - **Local accounts** in `users` (username, optional email, `password_hash`, display name,
-  active flag, last_login). Hashing uses PHP `password_hash()` defaults (**bcrypt**, not
-  Argon2id). No "must change password on first login", no login rate limiting. Sessions are
-  PHP-native with a custom `Session` wrapper; `CSRF` tokens on POSTs.
+  active flag, last_login). Hashing is already **Argon2id** (correction to an earlier
+  draft of this doc that said bcrypt). No "must change password on first login", no login
+  rate limiting. Sessions are PHP-native with a custom `Session` wrapper; `CSRF` tokens
+  on POSTs. *(Both gaps closed in step 3 — see git history.)*
 - **Groups**: `permission_groups` (with an `is_admin` flag), `user_group_members`,
   `group_permissions(group_id, page_key, access_level ENUM none/read/full)`.
   `PermissionService::level()` takes the **max** level across a user's groups; admin-group

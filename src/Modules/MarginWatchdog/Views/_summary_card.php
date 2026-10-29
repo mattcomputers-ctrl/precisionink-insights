@@ -47,7 +47,9 @@ $exportUrl = '/margin-watchdog/export?' . http_build_query([
                 <span><span class="legend-swatch" style="background:var(--warn);"></span>flat</span>
                 <span><span class="legend-swatch" style="background:var(--bad);"></span>worse</span>
             </span>
-            <a href="<?= e($exportUrl) ?>" class="btn btn-sm">⬇ Export to Excel</a>
+            <?php if (user_can('margin.export', 'export')): ?>
+                <a href="<?= e($exportUrl) ?>" class="btn btn-sm">⬇ Export to Excel</a>
+            <?php endif; ?>
         </div>
     </div>
 

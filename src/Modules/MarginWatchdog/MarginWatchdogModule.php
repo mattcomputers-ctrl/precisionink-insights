@@ -24,6 +24,12 @@ class MarginWatchdogModule extends Module
         ];
     }
 
+    /** Viewing this module requires the named view permission. */
+    public function permissionKey(): string
+    {
+        return 'margin.view';
+    }
+
     public function registerRoutes(Router $router): void
     {
         $controller = MarginWatchdogController::class;

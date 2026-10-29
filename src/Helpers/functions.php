@@ -166,6 +166,81 @@ function is_admin(): bool
 }
 
 /* ------------------------------------------------------------------
+ *  Permissions
+ * ----------------------------------------------------------------*/
+
+/** Current user holds ALL of the given permissions. False when logged out. */
+function user_can(string ...$permissions): bool
+{
+    $userId = current_user_id();
+    if ($userId === null) {
+        return false;
+    }
+    return \PII\Services\PermissionService::canAll($userId, ...$permissions);
+}
+
+/** Current user may see this module (not hidden, has its view permission). */
+function user_can_see_module(string $moduleKey): bool
+{
+    $userId = current_user_id();
+    if ($userId === null) {
+        return false;
+    }
+    $module = \PII\Core\App::modules()->get($moduleKey);
+    return $module !== null
+        && \PII\Services\PermissionService::canSeeModule($userId, $module);
+}
+
+/** Where the current user lands after login / clicking the logo. */
+function landing_path(): string
+{
+    $userId = current_user_id();
+    return $userId === null ? '/' : \PII\Services\PermissionService::landingPath($userId);
+}
+
+/**
+ * Render the plain 404 page and stop. Used both for genuinely unknown
+ * URLs and for anything the user lacks permission for — the response
+ * never reveals that a page exists (SPEC-order-readiness §2.1).
+ */
+function render_not_found(): never
+{
+    http_response_code(404);
+    $viewFile = dirname(__DIR__) . '/Views/errors/404.php';
+    if (file_exists($viewFile)) {
+        include $viewFile;
+    } else {
+        echo '<h1>404 — Not Found</h1>';
+    }
+    exit;
+}
+
+/**
+ * 404 unless the current user holds ALL given permissions, logging the
+ * denied attempt. Controllers use this for sub-page actions (exports,
+ * settings writes) that the module-level middleware check doesn't cover.
+ */
+function require_permission(string ...$permissions): void
+{
+    if (user_can(...$permissions)) {
+        return;
+    }
+    try {
+        \PII\Core\Database::getInstance()->insert('audit_log', [
+            'user_id'     => current_user_id(),
+            'entity_type' => 'access',
+            'entity_id'   => parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH),
+            'action'      => 'denied',
+            'details'     => json_encode(['missing' => array_values($permissions)]),
+            'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    } catch (\Throwable $e) {
+        // auditing must never turn a denial into a 500
+    }
+    render_not_found();
+}
+
+/* ------------------------------------------------------------------
  *  Number / money formatting
  * ----------------------------------------------------------------*/
 

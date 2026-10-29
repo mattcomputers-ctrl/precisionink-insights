@@ -16,6 +16,7 @@ class User
     {
         return Database::getInstance()->fetch(
             "SELECT id, username, email, display_name, is_active,
+                    must_change_password, landing_module,
                     last_login, created_at, updated_at
              FROM users WHERE id = ?",
             [$id]
@@ -26,7 +27,8 @@ class User
     {
         return Database::getInstance()->fetch(
             "SELECT id, username, email, password_hash, display_name,
-                    is_active, last_login, created_at, updated_at
+                    is_active, must_change_password, failed_logins, lockout_until,
+                    last_login, created_at, updated_at
              FROM users WHERE username = ?",
             [$username]
         );
@@ -87,11 +89,13 @@ class User
         }
 
         return (int) $db->insert('users', [
-            'username'      => $username,
-            'email'         => $email !== '' ? $email : null,
-            'password_hash' => password_hash($password, PASSWORD_ARGON2ID),
-            'display_name'  => trim($data['display_name'] ?? ''),
-            'is_active'     => isset($data['is_active']) ? (int) $data['is_active'] : 1,
+            'username'             => $username,
+            'email'                => $email !== '' ? $email : null,
+            'password_hash'        => password_hash($password, PASSWORD_ARGON2ID),
+            'display_name'         => trim($data['display_name'] ?? ''),
+            'is_active'            => isset($data['is_active']) ? (int) $data['is_active'] : 1,
+            'must_change_password' => isset($data['must_change_password']) ? (int) $data['must_change_password'] : 0,
+            'landing_module'       => !empty($data['landing_module']) ? $data['landing_module'] : null,
         ]);
     }
 
@@ -128,6 +132,13 @@ class User
         if (isset($data['is_active'])) {
             $updateData['is_active'] = (int) $data['is_active'];
         }
+        if (isset($data['must_change_password'])) {
+            $updateData['must_change_password'] = (int) $data['must_change_password'];
+        }
+        if (array_key_exists('landing_module', $data)) {
+            $updateData['landing_module'] = ($data['landing_module'] !== null && $data['landing_module'] !== '')
+                ? $data['landing_module'] : null;
+        }
         if (!empty($data['password'])) {
             if (strlen($data['password']) < 8) {
                 throw new \InvalidArgumentException('Password must be at least 8 characters.');
@@ -152,6 +163,9 @@ class User
         if (!$user || !(int) $user['is_active']) {
             return false;
         }
+        if (self::lockoutMinutesLeft($user) > 0) {
+            return false;
+        }
         if (!password_verify($password, $user['password_hash'])) {
             return false;
         }
@@ -166,13 +180,76 @@ class User
             );
         }
 
-        unset($user['password_hash']);
+        unset($user['password_hash'], $user['failed_logins'], $user['lockout_until']);
 
         // Attach group / admin info
         $user['is_admin'] = self::isAdmin((int) $user['id']) ? 1 : 0;
         $user['groups']   = self::getGroups((int) $user['id']);
 
         return $user;
+    }
+
+    /* ------------------------------------------------------------------
+     *  Login rate limiting (5 failures → 15-minute lockout)
+     * ----------------------------------------------------------------*/
+
+    public const MAX_FAILED_LOGINS   = 5;
+    public const LOCKOUT_MINUTES     = 15;
+
+    /** Minutes left on an active lockout, or 0 if none. */
+    public static function lockoutMinutesLeft(array $user): int
+    {
+        if (empty($user['lockout_until'])) {
+            return 0;
+        }
+        $left = strtotime($user['lockout_until']) - time();
+        return $left > 0 ? (int) ceil($left / 60) : 0;
+    }
+
+    public static function recordFailedLogin(int $id): void
+    {
+        $db   = Database::getInstance();
+        $user = $db->fetch("SELECT failed_logins FROM users WHERE id = ?", [$id]);
+        $fails = (int) ($user['failed_logins'] ?? 0) + 1;
+        $data  = ['failed_logins' => $fails];
+        if ($fails >= self::MAX_FAILED_LOGINS) {
+            $data['lockout_until'] = date('Y-m-d H:i:s', time() + self::LOCKOUT_MINUTES * 60);
+            $data['failed_logins'] = 0;   // fresh count after the lockout expires
+        }
+        $db->update('users', $data, 'id = ?', [$id]);
+    }
+
+    public static function clearLoginFailures(int $id): void
+    {
+        Database::getInstance()->update(
+            'users',
+            ['failed_logins' => 0, 'lockout_until' => null],
+            'id = ?',
+            [$id]
+        );
+    }
+
+    /**
+     * Change the user's own password (requires the current one) and clear
+     * the must-change flag. Throws on validation failure.
+     */
+    public static function changeOwnPassword(int $id, string $current, string $new): void
+    {
+        $db  = Database::getInstance();
+        $row = $db->fetch("SELECT password_hash FROM users WHERE id = ?", [$id]);
+        if (!$row || !password_verify($current, $row['password_hash'])) {
+            throw new \RuntimeException('Current password is incorrect.');
+        }
+        if (strlen($new) < 8) {
+            throw new \InvalidArgumentException('New password must be at least 8 characters.');
+        }
+        if ($new === $current) {
+            throw new \InvalidArgumentException('New password must be different from the current one.');
+        }
+        $db->update('users', [
+            'password_hash'        => password_hash($new, PASSWORD_ARGON2ID),
+            'must_change_password' => 0,
+        ], 'id = ?', [$id]);
     }
 
     public static function updateLastLogin(int $id): void

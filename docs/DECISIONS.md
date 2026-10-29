@@ -55,6 +55,37 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     `Recipe.Recipe = Item.CostingRecipe`. This is exactly how the SDS importer
     distinguishes finished goods from raw materials. Re-verify sample items at step 6.
 
+## 2026-10-29 — Step-3 decisions (mine, flagged for review)
+
+19. **Dashboard metric cards require `margin.view`.** The dashboard shows yesterday's
+    revenue, packed-cost % and inventory value — margin-sensitive numbers the spec locks
+    behind Margin Watchdog's permission. Users without it see the dashboard as a plain
+    tab launcher (no cards, no CMS-error banner). Interim rule until step 5's Home page.
+20. **Production group also gets Scheduling** (`scheduling.view` + `scheduling.manage`).
+    The spec's §11 table predates the Scheduling tool; the production team obviously
+    needs its own mill schedule. Margin Watchdog stays hidden from them.
+21. **Exports are double-gated:** the core `export` permission AND the tool-specific one
+    (`margin.export` for Margin Watchdog; `scheduling.manage` is not required to export a
+    schedule — `export` alone gates that button since viewing the schedule already
+    exposes the data).
+22. **Preferences and saved date presets follow Margin Watchdog's visibility** — they are
+    its per-user settings (colour thresholds, date ranges), so users who can't see the
+    module don't see those pages or nav links either.
+23. **Rate limiting:** 5 failed logins → 15-minute lockout on that account; the correct
+    password is also refused during lockout; counter resets after lockout/success.
+24. **Old `group_permissions` table is kept (unused)** for rollback; dropped in a later
+    migration once the new model has lived a while in production.
+25. **Grants for not-yet-registered modules are preserved**: the group editor only
+    touches permissions the catalog knows, so the seeded Order Readiness grants
+    (`orders.*`, `production.*`) and the `order_readiness` default-module values survive
+    admin edits and light up when that module ships (step 7).
+26. **Integration crawl harness** (`tests/integration/`): Docker MariaDB + php:8.3 serving
+    the app with a CMS-less test config; logs in as each seeded group and checks every
+    route's status, nav links, in-page controls, plain-404 bodies, no-error-dump pages,
+    landing paths, forced password change, lockout, and mid-session deactivation.
+    Dev-box only (it seeds/deletes crawl_* users); it refuses to run unless the DB name
+    contains "test". 350 checks green as of this entry.
+
 ## Open items to decide later (spec says "decide" — not yet decided)
 
 - Sync overall timeout (spec default 5 min) and per-step timeouts — set at step 4.

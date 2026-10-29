@@ -127,6 +127,8 @@ class App
         $router->get('/login',  'AuthController@loginForm');
         $router->post('/login', 'AuthController@login');
         $router->get('/logout', 'AuthController@logout');
+        $router->get('/password',  'AuthController@passwordForm');
+        $router->post('/password', 'AuthController@passwordSave');
 
         // ── Dashboard (landing page after login) ─────────────────────
         $router->get('/', 'DashboardController@index');
@@ -158,6 +160,7 @@ class App
             $r->get('/groups/{id}/edit',    'AdminController@editGroup');
             $r->post('/groups/{id}',        'AdminController@updateGroup');
             $r->post('/groups/{id}/delete', 'AdminController@deleteGroup');
+            $r->post('/groups/{id}/move',   'AdminController@moveGroup');
 
             $r->get('/settings',  'AdminController@settings');
             $r->post('/settings', 'AdminController@saveSettings');

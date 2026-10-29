@@ -13,7 +13,11 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
 <?php if (empty($mills)): ?>
     <div class="alert alert-info">
         <strong>No equipment configured.</strong>
-        Add your mills in <a href="/scheduling/settings">Scheduling settings</a> before generating a schedule.
+        <?php if (user_can('scheduling.manage')): ?>
+            Add your mills in <a href="/scheduling/settings">Scheduling settings</a> before generating a schedule.
+        <?php else: ?>
+            No mills are configured yet. Ask an administrator to set up the equipment list.
+        <?php endif; ?>
     </div>
 <?php endif; ?>
 
@@ -26,7 +30,9 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
                 Runs are sequenced by the color ladder to minimize washups; order shortfalls jump the line.
             </div>
         </div>
-        <a href="/scheduling/settings" class="btn btn-sm">⚙ Scheduling settings</a>
+        <?php if (user_can('scheduling.manage')): ?>
+            <a href="/scheduling/settings" class="btn btn-sm">⚙ Scheduling settings</a>
+        <?php endif; ?>
     </div>
 
     <div class="form-row">
@@ -72,6 +78,10 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
 <script>
 (function () {
     'use strict';
+
+    // Server-decided: export controls are not rendered at all without the
+    // permission (the POST endpoint is enforced server-side regardless).
+    const CAN_EXPORT = <?= user_can('export') ? 'true' : 'false' ?>;
 
     let schedule = null;   // current (possibly edited) schedule JSON
 
@@ -126,7 +136,10 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         // Grid: one card per mill, columns per enabled day
         let h = '';
         h += '<div class="toolbar"><h2 style="margin:0;">Week of ' + esc(schedule.week_start) + '</h2>';
-        h += '<button type="button" class="btn btn-primary" id="sched-export-btn">⬇ Export to Excel</button></div>';
+        if (CAN_EXPORT) {
+            h += '<button type="button" class="btn btn-primary" id="sched-export-btn">⬇ Export to Excel</button>';
+        }
+        h += '</div>';
 
         (schedule.mills || []).forEach((mill, mi) => {
             h += '<div class="card">';
@@ -170,7 +183,8 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         }
         unschedEl.innerHTML = uh;
 
-        document.getElementById('sched-export-btn').addEventListener('click', exportExcel);
+        const exportBtn = document.getElementById('sched-export-btn');
+        if (exportBtn) exportBtn.addEventListener('click', exportExcel);
         wireDragDrop();
     }
 

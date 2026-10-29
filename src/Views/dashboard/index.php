@@ -20,7 +20,7 @@ $invDateLabel = $inventory
     </div>
 <?php endif; ?>
 
-<?php if (!$cmsError && $inventory === null): ?>
+<?php if (!empty($showMetrics) && !$cmsError && $inventory === null): ?>
     <div class="alert alert-info">
         <strong>Inventory snapshots not yet captured.</strong>
         Snapshots are generated nightly by <code>cron/snapshot-inventory.php</code>; the inventory total + GL-group breakdown will appear here after the first run.
