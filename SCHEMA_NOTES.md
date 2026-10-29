@@ -223,3 +223,92 @@ The module abstraction lives in `src/Core/Module.php`. To add a tab:
 
 The tab nav, permission check, and route dispatch all pick up the new module
 automatically. No global wiring to update.
+
+## 6. CMS schema knowledge merged from the SDS System (2026-10-29)
+
+The SDS System (separate repo, `/var/www/sds-system` in production) explored the CMS
+schema further than Insights had, especially items, recipes and inventory. Its CMS access
+lives in `src/Services/CMSImportService.php` there; the schema facts below are merged here
+per SPEC-order-readiness §0.3 so this file is the single source of truth. Verified against
+live CMS during SDS development; re-verify anything load-bearing before building on it.
+
+### 6.1 Item ↔ recipe model (the "has a recipe" question)
+
+```
+Item (PK: Item int, code: ItemCode varchar(30))
+  └─ Item.CostingRecipe (int, nullable) ──► Recipe (PK: Recipe int, RecipeNumber varchar(20))
+        └─ RecipeDetail (FK Recipe), rows distinguished by Context:
+             'BA'    batch header      'UI' ingredients (formula lines)
+             'INSTR' instructions      'PK' packaging line   'UB' sub-packaging
+```
+
+- **An item "has a recipe" iff `Item.CostingRecipe IS NOT NULL`; the current active recipe
+  is the one `CostingRecipe` points at.** This is exactly how the SDS importer splits
+  finished goods (have a CostingRecipe) from raw materials (appear as ingredients, no
+  CostingRecipe of their own). Order Readiness §8.3 should use the same rule.
+- Formula lines: `RecipeDetail.Context='UI'`, `RecipeDetail.Item` → ingredient `Item.Item`,
+  `QtyReqd` is the fraction (UI rows sum to 1.0), `Line` is the order.
+- Verified example: E1202 → CostingRecipe 8203 → RecipeNumber E1202.03, 5 UI rows summing
+  to 100%.
+- Not formula-related: `ItemComponent` (chemical CAS composition), `Component`,
+  `Bill`/`BillDetail` (AP costing). `BatchingRecipeLibrary` exists for batching variants —
+  scope for Order Readiness step 6 verification.
+
+### 6.2 Aliases (Item Names)
+
+Aliases are ordinary `Item` rows with `ReplacedBy` set to the parent inventory item's
+`Item` PK (`ReplacedBy IS NULL` ⇒ real inventory item). The `ItemNames` view pre-resolves
+the self-join (`ReplacedByCode` = parent's ItemCode; ~7,100 alias rows). Margin Watchdog
+already relies on this (§2 Caveat #2): the alias's own `Description` is shown, and
+inventory-item lookups use `ISNULL(alias.ReplacedBy, alias.Item)`.
+
+### 6.3 What's underneath the `ShipmentDetails` view
+
+The view (§1) joins ~12 tables, filtered `InvMovement.Context='SH'`,
+`InvMovementDtl.Context IN ('US','USH')`:
+
+```
+InvMovement ─ InvMovementDtl ─ OrdDetail ─ Ordr ─ Entities (ShipTo/BillTo/Salesman)
+      │              │             └ OrdDetailPricing
+      └ ChangeSet ─ Trans (invoice)            └ Item (alias via OrdDetail.ItemName)
+            └ ChangeSetShipment ─ Waybill (DateShipped when Status='CMP')
+```
+
+Useful when the view is not enough: `OrdDetail.QtyReqd`/`Price` are the order line;
+`InvMovementDtl.Qty` is negative for shipments; `DateShipped` falls back to
+`ChangeSet.ChangeDate` for uncompleted waybills. For Order Readiness, open-order reads
+should come from `Ordr`/`OrdDetail` directly (`Ordr.Context='SH'`), not ShipmentDetails
+(which only shows what already shipped).
+
+### 6.4 Order / ticket contexts and statuses (for Order Readiness — verify at step 6)
+
+- `Ordr.Context`: `SH` sales order, `MFBA` batch manufacturing ticket, `MFPP` packaging
+  ticket, `PO` purchase order.
+- Sales order statuses (per Matt): `CMP` completed; `CSH` open, credit hold; `RTS` open,
+  released to ship.
+- Ticket statuses (per Matt): `RLS` released; `NST` cut, not released (flag); `BAT`
+  production complete, closing (flag if >1 day); `CMP` completed; `CLS` closed-not-completed
+  (cancelled — not open supply).
+- `BatchSheetDemand` links batch tickets to the demand (sales) orders they were cut for.
+- Inventory does not move until a ticket reaches `BAT`/`CMP` (§14 Q6) — open `RLS` tickets
+  are future supply only.
+
+### 6.5 Minimum stock
+
+`ItemEntity.MinimumStock` with `ItemEntity.Context='ST'` is the authoritative row (the row
+CMS's ShortInventory view uses; already relied on by Scheduling, §4). `ItemEntity` has
+multiple rows per item (~29,900 rows / ~22,400 items) — never join it without the Context
+filter. Values: real minimum (~390 items), **99 = discontinued** (~35 items), NULL = no
+minimum (Scheduling treats as make-to-order; Order Readiness: not suggested unless
+projected negative).
+
+### 6.6 Other merged pointers
+
+- **Price versions** (not yet used by Insights): `PriceVersion` header + `PriceDetail`
+  lines; active price resolved by latest `EffectiveDate` ≤ today; convenience views
+  `PriceDetailExt`, `PurchasePriceDetails`.
+- `Entity`/`Entities`: `Entities` is the convenience view with `EntityCode`, `EntityName`
+  and role flags (IsBillTo, IsSupplier, …).
+- `GetInventoryAtDate(@Date, @Owner)` TVF: historical inventory, **~46 s per call** — never
+  from a web request (nightly snapshot only). Live inventory comes from the fast
+  `InventoryTotal` view instead.
