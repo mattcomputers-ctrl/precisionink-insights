@@ -38,7 +38,8 @@ $exportUrl = '/margin-watchdog/export?' . http_build_query([
             <h2 class="card-title">Company-wide summary</h2>
             <div class="card-subtitle">
                 Baseline: <strong><?= e($bsLabel) ?></strong> &nbsp;·&nbsp;
-                Comparison: <strong><?= e($ccLabel) ?></strong>
+                Comparison: <strong><?= e($ccLabel) ?></strong> &nbsp;·&nbsp;
+                <span title="This report queries CMS live when you run it.">generated <?= e(date('g:i A')) ?></span>
             </div>
         </div>
         <div class="flex gap-1 items-center">
@@ -48,7 +49,7 @@ $exportUrl = '/margin-watchdog/export?' . http_build_query([
                 <span><span class="legend-swatch" style="background:var(--bad);"></span>worse</span>
             </span>
             <?php if (user_can('margin.export', 'export')): ?>
-                <a href="<?= e($exportUrl) ?>" class="btn btn-sm">⬇ Export to Excel</a>
+                <a href="<?= e($exportUrl) ?>" class="btn btn-sm" data-export="1">⬇ Export to Excel</a>
             <?php endif; ?>
         </div>
     </div>

@@ -143,6 +143,7 @@ class App
         $router->get('/logout', 'AuthController@logout');
         $router->get('/password',  'AuthController@passwordForm');
         $router->post('/password', 'AuthController@passwordSave');
+        $router->post('/theme',    'PreferencesController@toggleTheme');
 
         // ── Dashboard (landing page after login) ─────────────────────
         $router->get('/', 'DashboardController@index');
@@ -183,6 +184,7 @@ class App
             $r->get('/settings/snapshot-status',    'AdminController@snapshotStatus');
 
             $r->get('/audit-log', 'AdminController@auditLog');
+            $r->get('/ui-kit',    'AdminController@uiKit');
 
             // CMS & Sync (SPEC §3.1)
             $r->get('/cms',                 'CmsAdminController@index');

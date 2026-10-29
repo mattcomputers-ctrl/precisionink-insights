@@ -46,7 +46,7 @@ class DashboardController
         }
 
         layout('dashboard/index', [
-            'pageTitle'   => 'Dashboard',
+            'pageTitle'   => 'Home',
             'modules'     => $accessible,
             'showMetrics' => $showMetrics,
             'shipments'   => $shipments,

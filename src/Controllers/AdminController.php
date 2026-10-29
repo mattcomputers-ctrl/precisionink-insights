@@ -706,6 +706,12 @@ class AdminController
         redirect('/admin/settings');
     }
 
+    /** Hidden shared-component reference page (SPEC §4). */
+    public function uiKit(): void
+    {
+        layout('admin/ui-kit', ['pageTitle' => 'UI kit']);
+    }
+
     /* ------------------------------------------------------------------
      *  Audit log
      * ----------------------------------------------------------------*/

@@ -33,7 +33,7 @@ cd /app
 php migrations/migrate.php
 
 echo "[entry] starting php -S…"
-php -S 0.0.0.0:8080 public/index.php >/tmp/server.log 2>&1 &
+php -S 0.0.0.0:8080 -t public tests/integration/router.php >/tmp/server.log 2>&1 &
 SERVER_PID=$!
 sleep 1
 

@@ -90,6 +90,30 @@ class PreferencesController
         redirect('/preferences');
     }
 
+    /**
+     * POST /theme — flip the current user's light/dark preference.
+     * Available to every logged-in user (routed outside /preferences,
+     * which follows Margin Watchdog's visibility).
+     */
+    public function toggleTheme(): void
+    {
+        CSRF::validateRequest();
+        $userId = (int) current_user_id();
+        $db     = \PII\Core\Database::getInstance();
+
+        $row = $db->fetch(
+            "SELECT `value` FROM user_preferences WHERE user_id = ? AND `key` = 'theme'",
+            [$userId]
+        );
+        $new = (($row['value'] ?? 'light') === 'dark') ? 'light' : 'dark';
+        if ($row) {
+            $db->update('user_preferences', ['value' => $new], "user_id = ? AND `key` = 'theme'", [$userId]);
+        } else {
+            $db->insert('user_preferences', ['user_id' => $userId, 'key' => 'theme', 'value' => $new]);
+        }
+        back();
+    }
+
     public function resetSystemDefaults(): void
     {
         CSRF::validateRequest();

@@ -134,7 +134,9 @@ function flash_messages(): string
         if (isset($_SESSION['_flash'][$type])) {
             $message = $_SESSION['_flash'][$type];
             $cls     = ($type === 'error') ? 'danger' : $type;
-            $html   .= '<div class="alert alert-' . $cls . '" role="alert">';
+            // Success flashes render as brief toasts (app.js); problems stay inline.
+            $toast   = $type === 'success' ? ' data-toast="1"' : '';
+            $html   .= '<div class="alert alert-' . $cls . '"' . $toast . ' role="alert">';
             $html   .= e($message);
             $html   .= '<button type="button" class="alert-close" aria-label="Close">&times;</button>';
             $html   .= '</div>';

@@ -1,8 +1,10 @@
 <?php
 /**
+ * App shell (SPEC §4): topbar + always-visible sync status bar + side nav.
+ *
  * @var string $pageTitle
  * @var string $bodyContent  pre-rendered HTML
- * @var string|null $activeKey  module key currently active (null on dashboard / non-module pages)
+ * @var string|null $activeKey  module key currently active (null on Home / non-module pages)
  */
 $appName = app_name();
 $user    = $_SESSION['_user'] ?? null;
@@ -14,17 +16,20 @@ $uri     = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $active  = $activeKey ?? null;
 $homeUrl = $user ? landing_path() : '/';
 
-// Color preference
+// Per-user presentation preferences
 $colorsOn = true;
+$theme    = 'light';
 if ($user) {
-    $row = \PII\Core\Database::getInstance()->fetch(
-        "SELECT `value` FROM user_preferences WHERE user_id = ? AND `key` = 'colors_enabled'",
+    $prefs = \PII\Core\Database::getInstance()->fetchAll(
+        "SELECT `key`, `value` FROM user_preferences WHERE user_id = ? AND `key` IN ('colors_enabled','theme')",
         [(int) $user['id']]
     );
-    if ($row && $row['value'] === '0') {
-        $colorsOn = false;
+    foreach ($prefs as $p) {
+        if ($p['key'] === 'colors_enabled' && $p['value'] === '0') $colorsOn = false;
+        if ($p['key'] === 'theme' && $p['value'] === 'dark')       $theme = 'dark';
     }
 }
+$bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'theme-dark ' : '') . ($user ? '' : 'no-nav'));
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,59 +39,83 @@ if ($user) {
     <link rel="stylesheet" href="/css/app.css">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 </head>
-<body class="<?= $colorsOn ? '' : 'colors-off' ?>">
+<body class="<?= e($bodyClasses) ?>">
     <header class="topbar">
+        <?php if ($user): ?>
+            <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">☰</button>
+        <?php endif; ?>
         <a href="<?= e($homeUrl) ?>" class="brand">
             <span class="brand-mark">PII</span>
-            <span><?= e($appName) ?></span>
+            <span class="brand-name"><?= e($appName) ?></span>
         </a>
         <?php if ($user): ?>
         <div class="user-menu">
-            <span class="user-name"><?= e($user['display_name'] ?: $user['username']) ?></span>
-            <?php if (!empty($user['is_admin'])): ?>
-                <span class="user-badge user-badge-admin">Admin</span>
-            <?php endif; ?>
-            <?php if (user_can_see_module('margin_watchdog')): ?>
-                <a href="/preferences" class="btn btn-sm" title="Preferences">⚙ Preferences</a>
-            <?php endif; ?>
-            <?php if (user_can('admin.system')): ?>
-                <a href="/admin/settings" class="btn btn-sm" title="System settings">⚙ Settings</a>
-            <?php endif; ?>
-            <?php if (user_can('admin.cms')): ?>
-                <a href="/admin/cms" class="btn btn-sm" title="CMS connection and sync">CMS &amp; Sync</a>
-            <?php endif; ?>
-            <?php if (user_can('admin.users')): ?>
-                <a href="/admin/users" class="btn btn-sm">Users</a>
-            <?php endif; ?>
-            <?php if (user_can('admin.system')): ?>
-                <a href="/admin/audit-log" class="btn btn-sm">Audit</a>
-            <?php endif; ?>
-            <a href="/password" class="btn btn-sm" title="Change password">Password</a>
-            <a href="/logout" class="btn btn-sm">Logout</a>
+            <button type="button" class="user-menu-btn">
+                <span class="user-name"><?= e($user['display_name'] ?: $user['username']) ?></span>
+                <?php if (!empty($user['is_admin'])): ?>
+                    <span class="user-badge user-badge-admin">Admin</span>
+                <?php endif; ?>
+                <span aria-hidden="true">▾</span>
+            </button>
+            <div class="user-menu-panel">
+                <?php if (user_can_see_module('margin_watchdog')): ?>
+                    <a href="/preferences">⚙ Preferences</a>
+                <?php endif; ?>
+                <a href="/password">🔑 Change password</a>
+                <form method="POST" action="/theme" style="margin:0;">
+                    <?= csrf_field() ?>
+                    <button type="submit"><?= $theme === 'dark' ? '☀ Switch to light mode' : '🌙 Switch to dark mode' ?></button>
+                </form>
+                <div class="user-menu-divider"></div>
+                <a href="/logout">↩ Log out</a>
+            </div>
         </div>
         <?php endif; ?>
     </header>
 
     <?php if ($user): ?>
-    <nav class="tab-nav">
-        <a href="/" class="tab-nav-item <?= $uri === '/' ? 'active' : '' ?>">
-            <span class="tab-icon">⌂</span> Dashboard
+    <div id="sync-bar" class="sync-bar sync-bar-paused" role="status" aria-live="polite">
+        <span class="sync-icon">⟳</span>
+        <span class="sync-text">Checking data status…</span>
+        <span class="sync-progress" style="display:none;"><span style="width:0%"></span></span>
+        <button type="button" id="sync-try-btn" class="btn btn-sm" style="display:none;">Try again</button>
+        <button type="button" id="sync-now-btn" class="btn btn-sm" style="display:none;">⟳ Sync now</button>
+    </div>
+
+    <div class="nav-backdrop"></div>
+    <nav class="side-nav" aria-label="Main navigation">
+        <a href="/" class="<?= $uri === '/' ? 'active' : '' ?>">
+            <span class="nav-icon">⌂</span><span class="nav-label">Home</span>
         </a>
         <?php foreach ($modules as $module):
             $key  = $module->key();
             $base = $module->basePath();
             $isActive = ($active === $key) || str_starts_with($uri, $base);
         ?>
-            <a href="<?= e($base) ?>" class="tab-nav-item <?= $isActive ? 'active' : '' ?>">
-                <?php if ($module->icon() !== ''): ?>
-                    <span class="tab-icon"><?= $module->icon() ?></span>
-                <?php endif; ?>
-                <?= e($module->name()) ?>
+            <a href="<?= e($base) ?>" class="<?= $isActive ? 'active' : '' ?>" title="<?= e($module->description()) ?>">
+                <span class="nav-icon"><?= $module->icon() !== '' ? $module->icon() : '▪' ?></span>
+                <span class="nav-label"><?= e($module->name()) ?></span>
             </a>
         <?php endforeach; ?>
-        <span class="tab-nav-spacer"></span>
         <?php if (user_can_see_module('margin_watchdog')): ?>
-            <a href="/presets" class="tab-nav-aux <?= str_starts_with($uri, '/presets') ? 'active' : '' ?>">Presets</a>
+            <a href="/presets" class="<?= str_starts_with($uri, '/presets') ? 'active' : '' ?>">
+                <span class="nav-icon">📌</span><span class="nav-label">Date presets</span>
+            </a>
+        <?php endif; ?>
+
+        <?php
+        $adminLinks = [];
+        if (user_can('admin.users'))  { $adminLinks['/admin/users'] = ['👥', 'Users & groups']; }
+        if (user_can('admin.cms'))    { $adminLinks['/admin/cms'] = ['🔌', 'CMS & Sync']; }
+        if (user_can('admin.system')) { $adminLinks['/admin/settings'] = ['🛠', 'System settings']; $adminLinks['/admin/audit-log'] = ['📜', 'Audit log']; }
+        ?>
+        <?php if ($adminLinks !== []): ?>
+            <div class="nav-section">Administration</div>
+            <?php foreach ($adminLinks as $href => [$icon, $label]): ?>
+                <a href="<?= e($href) ?>" class="<?= str_starts_with($uri, $href) ? 'active' : '' ?>">
+                    <span class="nav-icon"><?= $icon ?></span><span class="nav-label"><?= e($label) ?></span>
+                </a>
+            <?php endforeach; ?>
         <?php endif; ?>
     </nav>
     <?php endif; ?>

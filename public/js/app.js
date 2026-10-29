@@ -1,33 +1,237 @@
 /**
  * Precision Ink Insights — Front-end JS
- * Small vanilla helpers; no framework required.
+ * Vanilla helpers: shell behaviour, sync status bar, toasts, busy buttons,
+ * and the Margin Watchdog drill-down. No framework, no build step.
  */
 (function () {
     'use strict';
 
-    // CSRF token used for AJAX POSTs
     window.PII = {
         csrfToken: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
     };
 
-    // Dismissable alerts
+    /* ── Dismissable alerts ─────────────────────────────────────── */
     document.addEventListener('click', (e) => {
         if (e.target.matches('.alert-close')) {
-            const alert = e.target.closest('.alert');
-            if (alert) alert.remove();
+            e.target.closest('.alert')?.remove();
         }
     });
 
-    // ── Margin Watchdog ────────────────────────────────────────
-    // Bill To row expand/collapse → AJAX-load items
+    /* ── Toasts (success flashes render as toasts, not banners) ── */
+    const toastStack = (() => {
+        let el = document.getElementById('toast-stack');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'toast-stack';
+            document.body.appendChild(el);
+        }
+        return el;
+    })();
+
+    window.PII.toast = function (message, icon) {
+        const t = document.createElement('div');
+        t.className = 'toast';
+        t.textContent = (icon ? icon + ' ' : '✔ ') + message;
+        toastStack.appendChild(t);
+        setTimeout(() => { t.classList.add('toast-out'); setTimeout(() => t.remove(), 350); }, 4000);
+    };
+
+    // Server-rendered success alerts become toasts (errors stay inline).
+    document.querySelectorAll('.alert-success[data-toast]').forEach((el) => {
+        window.PII.toast(el.textContent.replace('×', '').trim());
+        el.remove();
+    });
+
+    /* ── Busy buttons: submit disables + relabels (SPEC §4) ─────── */
+    document.addEventListener('submit', (e) => {
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        const btn = form.querySelector('button[type="submit"]');
+        if (!btn || btn.classList.contains('is-busy')) return;
+        // Delay so the click that submits isn't blocked.
+        setTimeout(() => {
+            btn.classList.add('is-busy');
+            const busyLabel = btn.dataset.busyLabel || 'Working…';
+            btn.dataset.originalHtml = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner"></span> ' + busyLabel;
+        }, 0);
+        // Exports stream a download: re-enable after a few seconds.
+        if (form.dataset.export === '1') {
+            setTimeout(() => {
+                btn.classList.remove('is-busy');
+                if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+            }, 6000);
+        }
+    });
+
+    // Export links: immediate "preparing" feedback (the download streams).
+    document.addEventListener('click', (e) => {
+        const link = e.target.closest('a[data-export]');
+        if (link) window.PII.toast('Preparing your file…', '⬇');
+    });
+
+    /* ── Shell: sidebar collapse / mobile drawer / user menu ───── */
+    const navToggle = document.getElementById('nav-toggle');
+    if (navToggle) {
+        const mobile = () => window.matchMedia('(max-width: 860px)').matches;
+        if (localStorage.getItem('pii.nav') === 'collapsed' && !mobile()) {
+            document.body.classList.add('nav-collapsed');
+        }
+        navToggle.addEventListener('click', () => {
+            if (mobile()) {
+                document.body.classList.toggle('nav-open');
+            } else {
+                const collapsed = document.body.classList.toggle('nav-collapsed');
+                try { localStorage.setItem('pii.nav', collapsed ? 'collapsed' : 'open'); } catch (e) {}
+            }
+        });
+        document.querySelector('.nav-backdrop')?.addEventListener('click', () => {
+            document.body.classList.remove('nav-open');
+        });
+    }
+
+    const userMenu = document.querySelector('.user-menu');
+    if (userMenu) {
+        userMenu.querySelector('.user-menu-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            userMenu.classList.toggle('is-open');
+        });
+        document.addEventListener('click', () => userMenu.classList.remove('is-open'));
+    }
+
+    /* ── Sync status bar (SPEC §4.1) ────────────────────────────── */
+    const bar = document.getElementById('sync-bar');
+    if (bar) {
+        const textEl   = bar.querySelector('.sync-text');
+        const iconEl   = bar.querySelector('.sync-icon');
+        const progress = bar.querySelector('.sync-progress');
+        const progFill = progress ? progress.querySelector('span') : null;
+        const syncBtn  = document.getElementById('sync-now-btn');
+        const tryBtn   = document.getElementById('sync-try-btn');
+        let   status   = null;
+        let   wasSyncing = false;
+        let   timer    = null;
+
+        const rel = (unix) => {
+            if (!unix) return '';
+            const s = Math.max(0, Math.floor(Date.now() / 1000) - unix);
+            if (s < 60) return 'just now';
+            const m = Math.floor(s / 60);
+            if (m < 60) return m + ' minute' + (m === 1 ? '' : 's') + ' ago';
+            const h = Math.floor(m / 60);
+            if (h < 24) return h + ' hour' + (h === 1 ? '' : 's') + ' ago';
+            const d = Math.floor(h / 24);
+            return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+        };
+        const asOfTime = () => {
+            if (!status || !status.as_of_unix) return '';
+            return new Date(status.as_of_unix * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        };
+
+        function render() {
+            if (!status) return;
+            const cls = { ok: 'ok', never: 'paused', syncing: 'syncing', killed: 'paused', blackout: 'paused', problem: 'problem', auto_off: 'paused', stale: 'stale' }[status.state] || 'paused';
+            bar.className = 'sync-bar sync-bar-' + cls;
+            if (progress) progress.style.display = status.state === 'syncing' ? '' : 'none';
+            if (tryBtn)   tryBtn.style.display   = status.state === 'problem' && status.can_sync ? '' : 'none';
+            if (syncBtn)  syncBtn.style.display  = status.can_sync && ['ok', 'stale', 'auto_off', 'never', 'problem'].includes(status.state) ? '' : 'none';
+
+            let icon = '✔', text = '';
+            switch (status.state) {
+                case 'syncing': {
+                    icon = '⟳';
+                    const step = status.step ? ': ' + status.step : '';
+                    const n = status.step_num && status.step_total ? ' Step ' + status.step_num + ' of ' + status.step_total : '';
+                    text = 'Updating from CMS…' + n + step + ' · ' + (status.elapsed || 0) + ' s';
+                    if (progFill && status.step_num && status.step_total) {
+                        progFill.style.width = Math.round(100 * status.step_num / status.step_total) + '%';
+                    }
+                    break;
+                }
+                case 'ok':
+                    text = 'Data from CMS as of ' + asOfTime() + ' (' + rel(status.as_of_unix) + ').';
+                    break;
+                case 'never':
+                    icon = 'ℹ'; text = 'No CMS data yet — waiting for the first sync.';
+                    break;
+                case 'blackout':
+                    icon = '⏸'; text = 'Updates paused for the nightly backup until ' + (status.until || 'later') + '.' + (status.as_of_unix ? ' Data from ' + asOfTime() + '.' : '');
+                    break;
+                case 'killed':
+                    icon = '⏸'; text = 'CMS access is switched off by an administrator.' + (status.as_of_unix ? ' Data from ' + asOfTime() + '.' : '');
+                    break;
+                case 'auto_off':
+                    icon = '⏸'; text = 'Automatic updates are off.' + (status.as_of_unix ? ' Data from ' + asOfTime() + '.' : '');
+                    break;
+                case 'problem':
+                    icon = '✖'; text = 'Last update failed' + (status.error ? ': ' + status.error : '.') + (status.as_of_unix ? ' Showing data from ' + asOfTime() + '.' : '');
+                    break;
+                case 'stale':
+                    icon = '⚠'; text = 'Data is older than expected — from ' + asOfTime() + ' (' + rel(status.as_of_unix) + ').';
+                    break;
+            }
+            iconEl.textContent = icon;
+            textEl.textContent = text;
+        }
+
+        async function poll() {
+            try {
+                const resp = await fetch('/api/sync/status', { headers: { 'Accept': 'application/json' } });
+                if (resp.ok) {
+                    const fresh = await resp.json();
+                    if (wasSyncing && fresh.state !== 'syncing') {
+                        if (fresh.state === 'ok') window.PII.toast('Updated from CMS.');
+                        document.dispatchEvent(new CustomEvent('pii:sync-finished', { detail: fresh }));
+                    }
+                    wasSyncing = fresh.state === 'syncing';
+                    status = fresh;
+                    render();
+                }
+            } catch (e) { /* transient network problems: keep last state */ }
+            clearTimeout(timer);
+            timer = setTimeout(poll, status && status.state === 'syncing' ? 2000 : 15000);
+        }
+
+        async function requestSync(override) {
+            // Optimistic: flip to syncing immediately (SPEC §4.1).
+            bar.className = 'sync-bar sync-bar-syncing';
+            iconEl.textContent = '⟳';
+            textEl.textContent = 'Updating from CMS…';
+            if (syncBtn) syncBtn.style.display = 'none';
+            try {
+                const body = new URLSearchParams({ _csrf_token: window.PII.csrfToken });
+                if (override) body.set('override', '1');
+                const resp = await fetch('/api/sync/run', { method: 'POST', body });
+                const j = await resp.json();
+                if (!j.ok) {
+                    if (j.blackout && j.can_override && confirm(j.message + '\n\nOverride and sync anyway?')) {
+                        return requestSync(true);
+                    }
+                    window.PII.toast(j.message || 'Could not start the update.', 'ℹ');
+                }
+            } catch (e) {
+                window.PII.toast('Could not reach the server — try again.', '✖');
+            }
+            clearTimeout(timer);
+            timer = setTimeout(poll, 700);
+        }
+
+        syncBtn?.addEventListener('click', () => requestSync(false));
+        tryBtn?.addEventListener('click', () => requestSync(false));
+        poll();
+        // Tick the relative time while idle.
+        setInterval(() => { if (status && status.state !== 'syncing') render(); }, 30000);
+    }
+
+    /* ── Margin Watchdog: Bill To drill-down ────────────────────── */
     document.addEventListener('click', async (e) => {
         const btn = e.target.closest('.row-expand-toggle');
         if (!btn) return;
         e.preventDefault();
 
-        const tr      = btn.closest('tr');
-        const target  = btn.dataset.target;
-        const row     = document.getElementById(target);
+        const tr     = btn.closest('tr');
+        const target = btn.dataset.target;
+        const row    = document.getElementById(target);
         if (!row) return;
 
         const isOpen = btn.classList.toggle('is-open');
@@ -35,25 +239,19 @@
         tr.classList.toggle('expanded', isOpen);
         row.style.display = isOpen ? '' : 'none';
 
-        if (!isOpen) return;
-
-        // Lazy-load items the first time we open
-        if (row.dataset.loaded === '1') return;
+        if (!isOpen || row.dataset.loaded === '1') return;
 
         const wrap = row.querySelector('.children-wrap');
-        const billTo = btn.dataset.billto;
-
         try {
             const params = new URLSearchParams({
-                bill_to: billTo,
+                bill_to: btn.dataset.billto,
                 baseline_start: btn.dataset.baselineStart,
                 baseline_end:   btn.dataset.baselineEnd,
                 comparison_start: btn.dataset.comparisonStart,
                 comparison_end:   btn.dataset.comparisonEnd,
                 view_mode: getActiveItemViewMode(row)
             });
-            const url = '/margin-watchdog/items?' + params.toString();
-            const resp = await fetch(url, { headers: { 'Accept': 'text/html' } });
+            const resp = await fetch('/margin-watchdog/items?' + params.toString(), { headers: { 'Accept': 'text/html' } });
             wrap.innerHTML = await resp.text();
             row.dataset.loaded = '1';
         } catch (err) {
@@ -61,7 +259,6 @@
         }
     });
 
-    // Item view-mode toggle inside a Bill To drill-down
     document.addEventListener('change', async (e) => {
         if (!e.target.matches('.item-view-toggle')) return;
         const row = e.target.closest('.row-children');
@@ -90,14 +287,12 @@
         return tog ? tog.value : 'both';
     }
 
-    // Bill To list sort buttons
     document.addEventListener('click', (e) => {
         const sortBtn = e.target.closest('.bill-to-sort');
         if (!sortBtn) return;
         e.preventDefault();
-        const sort = sortBtn.dataset.sort;
         const url = new URL(window.location.href);
-        url.searchParams.set('sort', sort);
+        url.searchParams.set('sort', sortBtn.dataset.sort);
         window.location.href = url.toString();
     });
 
