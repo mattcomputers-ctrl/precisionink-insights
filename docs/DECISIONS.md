@@ -151,6 +151,28 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     Tickets CMS hasn't put a quantity on yet (live rows exist) credit
     nothing but still flag the item with "⏳ ticket N open" on the plan so
     nobody cuts a duplicate batch.
+41. **Materials check on open tickets (Matt, 2026-10-29):** every open
+    ticket's UI (material) lines are snapshotted (summed per item — CMS
+    lists some materials twice per ticket) and allocated against
+    `QtyUsable` in due-date order via `TicketMaterialsEngine`, so two
+    batches never count the same pound of pigment. An MFPP's bulk line
+    draws on its linked MFBA's output first, then on-hand bulk; an MFPP
+    whose MFBA is itself short is flagged (`mfba_short`). This inventory
+    pool is independent of the sales-order CoverageEngine pool — material
+    (SUNDRY) items are never on SH orders, so there is no double count.
+    On open tickets `QtyUsed` is always 0/NULL (verified live): materials
+    are issued at completion, so remaining = `QtyReqd`. Surfaced on the
+    Batch tickets page (Materials column + export), the orders list
+    ("batch short materials" pill), the order drill-down (per-line
+    warning), and an overview tile.
+42. **MFPP UI lines include CONTAINERS, not just bulk** (found during the
+    live materials run, 2026-10-29): pails/lids/drums are also Context
+    `SUNDRY`, unit 'ea', no recipe. The ticket's `bulk_code` is therefore
+    the item its linked MFBA MAKES (fallback: the UI item that has a
+    recipe), never an arbitrary SUNDRY line. This also fixed a latent bug
+    where the production plan could debit a pail count instead of bulk
+    pounds. Containers stay in the materials check on purpose — running
+    out of pails stops packaging just as surely as running out of ink.
 
 ## Formerly-open items, now decided
 

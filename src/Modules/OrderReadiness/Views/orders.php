@@ -100,7 +100,11 @@ if ($canReorder) {
                         <?= e(fmt_date($o['date_required'])) ?><?= $overdue ? ' ⚠ overdue' : '' ?>
                     </td>
                     <td class="text-right"><?= (int) $o['line_count'] ?></td>
-                    <td><?= $statusPill($o['status']) ?></td>
+                    <td><?= $statusPill($o['status']) ?>
+                        <?php if (!empty($o['materials_short'])): ?>
+                            <span class="pill pill-warn" title="Batch ticket<?= count($o['materials_short']) === 1 ? '' : 's' ?> <?= e(implode(', ', $o['materials_short'])) ?> can't be made yet — short raw materials (see Batch tickets)">⚠ batch short materials</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="text-muted" style="font-size:0.85rem;"><?= e($o['summary']) ?></td>
                     <td>
                         <?php if (($noteCounts[$o['ordr']] ?? 0) > 0): ?>

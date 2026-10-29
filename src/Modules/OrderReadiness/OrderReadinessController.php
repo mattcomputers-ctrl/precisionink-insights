@@ -37,6 +37,7 @@ class OrderReadinessController
             'pageTitle' => 'Order Readiness',
             'counts'    => $counts,
             'sug'       => $sug,
+            'ticketsShortMaterials' => count(array_filter($this->ticketReadiness(), fn($r) => $r['status'] === 'short')),
             'asOf'      => SyncSettings::lastSuccessAt(),
         ], 'order_readiness');
     }
@@ -124,9 +125,10 @@ class OrderReadinessController
         );
 
         view('order_readiness::_order_lines', [
-            'ordr'  => $ordr,
-            'lines' => $lines,
-            'notes' => $notes,
+            'ordr'      => $ordr,
+            'lines'     => $lines,
+            'notes'     => $notes,
+            'readiness' => $this->ticketReadiness(),
         ]);
     }
 
@@ -259,6 +261,22 @@ class OrderReadinessController
              ORDER BY t.date_required, t.ordr"
         );
 
+        // Materials check per ticket (+ names for the short materials).
+        $readiness = $this->ticketReadiness();
+        $matNames = [];
+        $shortCodes = [];
+        foreach ($readiness as $r) {
+            foreach ($r['shortages'] as $s) {
+                $shortCodes[$s['item_code']] = true;
+            }
+        }
+        if ($shortCodes !== []) {
+            $in = implode(',', array_fill(0, count($shortCodes), '?'));
+            foreach ($db->fetchAll("SELECT item_code, description FROM or_items WHERE item_code IN ({$in})", array_keys($shortCodes)) as $r) {
+                $matNames[$r['item_code']] = $r['description'];
+            }
+        }
+
         // Which order lines each ticket is covering (from allocations JSON).
         $covering = [];
         foreach ($db->fetchAll(
@@ -283,6 +301,8 @@ class OrderReadinessController
             'pageTitle' => 'Batch tickets',
             'tickets'   => $tickets,
             'covering'  => $covering,
+            'readiness' => $readiness,
+            'matNames'  => $matNames,
             'asOf'      => SyncSettings::lastSuccessAt(),
         ], 'order_readiness');
     }
@@ -454,21 +474,61 @@ class OrderReadinessController
 
     private function exportTickets(Database $db): array
     {
+        $readiness = $this->ticketReadiness();
         $rows = [];
         foreach ($db->fetchAll(
             "SELECT t.*, i.description FROM or_tickets t
              LEFT JOIN or_items i ON i.item_code = t.item_code
              ORDER BY t.date_required, t.ordr"
         ) as $t) {
+            $r = $readiness[(int) $t['ordr']] ?? null;
+            $materials = '';
+            if ($r !== null) {
+                if ($r['status'] === 'short') {
+                    $materials = 'Short: ' . implode('; ', array_map(
+                        fn($s) => $s['item_code'] . ' -' . rtrim(rtrim(number_format((float) $s['short'], 2, '.', ''), '0'), '.') . ' ' . $s['unit'],
+                        $r['shortages']
+                    ));
+                } elseif ($r['mfba_short'] === 1) {
+                    $materials = 'Batch short materials';
+                } else {
+                    $materials = 'On hand';
+                }
+            }
             $rows[] = [
-                $t['ordr'], $t['context'], $t['status'], $t['item_code'], $t['description'],
-                $t['qty'], $t['unit'], $t['date_required'], $t['date_released'], $t['customer_hint'],
+                $t['batch_ordr'] ?? $t['ordr'], $t['context'], $t['status'], $t['item_code'], $t['description'],
+                $t['qty'], $t['unit'], $t['date_required'], $t['date_released'], $t['customer_hint'], $materials,
             ];
         }
-        return ['Open batch tickets', ['Ticket #', 'Type', 'Status', 'Item', 'Description', 'Qty', 'Unit', 'Required', 'Released', 'Cut for'], $rows];
+        return ['Open batch tickets', ['Ticket #', 'Type', 'Status', 'Item', 'Description', 'Qty', 'Unit', 'Required', 'Released', 'Cut for', 'Materials'], $rows];
     }
 
     /* ── Shared helpers ────────────────────────────────────────── */
+
+    /**
+     * Materials check per ticket, keyed by ticket ordr, shortages decoded.
+     * Empty until the first sync after the 014 migration — pages degrade
+     * to simply not showing materials info.
+     *
+     * @return array<int,array{status:string,shortages:list<array>,from_mfba:float,mfba_short:int}>
+     */
+    private function ticketReadiness(): array
+    {
+        $out = [];
+        try {
+            foreach (Database::getInstance()->fetchAll("SELECT * FROM or_ticket_readiness") as $r) {
+                $out[(int) $r['ordr']] = [
+                    'status'     => (string) $r['status'],
+                    'shortages'  => json_decode((string) ($r['shortages'] ?? '[]'), true) ?: [],
+                    'from_mfba'  => (float) $r['from_mfba'],
+                    'mfba_short' => (int) $r['mfba_short'],
+                ];
+            }
+        } catch (\Throwable $e) {
+            // table not there yet (pre-migration page view) — degrade quietly
+        }
+        return $out;
+    }
 
     /** One row per open order with its rolled-up coverage status. */
     private function orderRollups(): array
@@ -483,8 +543,9 @@ class OrderReadinessController
             $o['lines'] = [];
             $orders[(int) $o['ordr']] = $o;
         }
+        $readiness = $this->ticketReadiness();
         foreach ($db->fetchAll(
-            "SELECT c.ordr, c.status, l.item_code, l.alias_code
+            "SELECT c.ordr, c.status, c.allocations, l.item_code, l.alias_code
              FROM or_coverage_results c JOIN or_order_lines l ON l.ord_detail = c.ord_detail"
         ) as $c) {
             if (isset($orders[(int) $c['ordr']])) {
@@ -498,6 +559,20 @@ class OrderReadinessController
                 continue;   // nothing open to cover
             }
             $roll = CoverageEngine::rollUp(array_column($o['lines'], 'status'));
+
+            // Does any batch this order is waiting on lack materials?
+            $materialsShort = [];
+            foreach ($o['lines'] as $ln) {
+                foreach (json_decode((string) ($ln['allocations'] ?? '[]'), true) ?: [] as $a) {
+                    if (($a['type'] ?? '') !== 'ticket') {
+                        continue;
+                    }
+                    $r = $readiness[(int) ($a['ticket'] ?? 0)] ?? null;
+                    if ($r !== null && ($r['status'] === 'short' || $r['mfba_short'] === 1)) {
+                        $materialsShort[(int) ($a['batch'] ?? $a['ticket'])] = true;
+                    }
+                }
+            }
             $out[] = [
                 'ordr'          => (int) $o['ordr'],
                 'status_code'   => $o['status'],
@@ -511,6 +586,7 @@ class OrderReadinessController
                 'line_count'    => count($o['lines']),
                 'status'        => $roll['status'],
                 'summary'       => $roll['summary'],
+                'materials_short' => array_keys($materialsShort),
                 'items'         => implode(' ', array_column($o['lines'], 'alias_code')),
             ];
         }

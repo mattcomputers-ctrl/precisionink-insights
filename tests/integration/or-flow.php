@@ -62,13 +62,15 @@ foreach (['orf_prod' => 'Production', 'orf_ship' => 'Shipping'] as $u => $g) {
    With 9001 first: 9001 gets 80 stock + 20 ticket → waiting;
    9002 gets 40 ticket → short 10; D-50 line short_discontinued.        */
 foreach (['or_items','or_inventory','or_orders','or_order_lines','or_tickets',
-          'or_ticket_links','or_coverage_results','or_production_suggestions',
+          'or_ticket_links','or_ticket_materials','or_ticket_readiness',
+          'or_coverage_results','or_production_suggestions',
           'or_order_priority','or_order_notes','or_suggestion_marks'] as $t) {
     $pdo->exec("DELETE FROM {$t}");
 }
 $pdo->exec("INSERT INTO or_items (item_code, description, unit, is_pack, has_recipe, recipe_number, minimum_stock, is_discontinued) VALUES
     ('A-50', 'TEST BLUE INK 50LB', 'lb', 1, 1, 'A.03', 100, 0),
-    ('D-50', 'TEST DISCONTINUED INK', 'lb', 1, 1, 'D.01', 99, 1)");
+    ('D-50', 'TEST DISCONTINUED INK', 'lb', 1, 1, 'D.01', 99, 1),
+    ('VEC-7', 'TEST VEHICLE RESIN', 'lb', 0, 0, NULL, NULL, 0)");
 $pdo->exec("INSERT INTO or_inventory (item_code, qty_usable, qty_soh, qty_hold, qty_unusable) VALUES
     ('A-50', 80, 85, 5, 0), ('D-50', 0, 0, 0, 0)");
 $pdo->exec("INSERT INTO or_orders (ordr, status, bill_to, bill_to_name, ship_to, ship_to_name, po_number, date_ordered, date_required) VALUES
@@ -80,6 +82,11 @@ $pdo->exec("INSERT INTO or_order_lines (ord_detail, ordr, item_code, alias_code,
     (3, 9002, 'D-50', 'CUST-D', 'CUSTOMER OLD RED', 10, 0, 10, 0, 'lb')");
 $pdo->exec("INSERT INTO or_tickets (ordr, context, status, item_code, qty, unit, date_required, customer_hint, batch_ordr) VALUES
     (7001, 'MFPP', 'RLS', 'A-50', 60, 'lb', '2026-11-03', 'PRIORITY CO', 7000)");
+// Materials check: ticket 7001 is short 12.5 lb of VEC-7 (Matt, 2026-10-29).
+$pdo->exec("INSERT INTO or_ticket_materials (ordr, item_code, qty_reqd, unit) VALUES
+    (7001, 'VEC-7', 12.5, 'lb')");
+$pdo->exec("INSERT INTO or_ticket_readiness (ordr, status, shortages, from_mfba, mfba_short) VALUES
+    (7001, 'short', '[{\"item_code\":\"VEC-7\",\"need\":12.5,\"short\":12.5,\"unit\":\"lb\"}]', 0, 0)");
 $pdo->exec("INSERT INTO or_order_priority (ordr, position) VALUES (9001, 1), (9002, 2)");
 $pdo->exec("INSERT INTO or_production_suggestions (item_code, severity, minimum_stock, on_hand, on_tickets, open_demand, projected, shortfall, suggested_qty, recipe_number) VALUES
     ('A-50', 'below', 100, 80, 60, 150, -10, 110, 150, 'A.03')");
@@ -150,6 +157,29 @@ $page = $ship->get('/orders/tickets');
 ok($page['status'] === 200 && str_contains($page['body'], '7001') && str_contains($page['body'], 'PRIORITY CO'),
     'tickets page shows ticket + cut-for hint');
 
+/* ── Materials check surfaces (Matt, 2026-10-29) ────────────────── */
+echo "== materials check\n";
+ok(str_contains($page['body'], 'Short materials'), 'tickets page flags the materials-short ticket');
+ok(str_contains($page['body'], 'VEC-7'), 'tickets page names the missing material');
+ok(str_contains($page['body'], '12.5'), 'tickets page shows the missing quantity');
+ok(str_contains($page['body'], 'short the materials needed'), 'tickets subtitle counts short tickets');
+
+$page = $ship->get('/orders/list?tab=all');
+ok(str_contains($page['body'], 'batch short materials'), 'orders list warns when a covering batch lacks materials');
+
+$frag = $ship->get('/orders/order/9001/lines');
+ok(str_contains($frag['body'], 'Batch ticket 7000') && str_contains($frag['body'], "can't be made yet"),
+    'order drill-down explains the batch is short materials (by MAIN batch number)');
+ok(str_contains($frag['body'], 'VEC-7'), 'drill-down names the missing material');
+
+$csv = $ship->get('/orders/export/tickets?format=csv');
+if ($csv['status'] === 200) {
+    ok(str_contains($csv['body'], 'Materials') && str_contains($csv['body'], 'Short: VEC-7'),
+        'tickets export carries the materials column');
+} else {
+    ok($csv['status'] === 404, 'shipping user without export permission gets a plain 404');
+}
+
 /* ── Notes: add, render, search ─────────────────────────────────── */
 echo "== order notes\n";
 $resp = $ship->post('/orders/order/9001/notes', [
@@ -204,7 +234,8 @@ ok($xlsx['status'] === 200 && str_starts_with($xlsx['body'], 'PK'), 'tickets XLS
 
 /* ── Cleanup ────────────────────────────────────────────────────── */
 foreach (['or_items','or_inventory','or_orders','or_order_lines','or_tickets',
-          'or_ticket_links','or_coverage_results','or_production_suggestions',
+          'or_ticket_links','or_ticket_materials','or_ticket_readiness',
+          'or_coverage_results','or_production_suggestions',
           'or_order_priority','or_order_notes','or_suggestion_marks'] as $t) {
     $pdo->exec("DELETE FROM {$t}");
 }

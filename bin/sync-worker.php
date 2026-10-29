@@ -89,9 +89,14 @@ function autoDue(Database $db): bool
     if (!CMSDatabase::isConfigured()) {
         return false;
     }
-    $last = $db->fetch("SELECT MAX(created_at) AS t FROM sync_runs");
-    if (empty($last['t'])) {
+    // created_at is written by the DATABASE clock, so measure the elapsed
+    // time with that same clock. Comparing it against PHP's time() breaks
+    // whenever MySQL and PHP run in different timezones (e.g. UTC vs
+    // America/New_York): the last run looks hours in the future and the
+    // schedule never fires.
+    $last = $db->fetch("SELECT TIMESTAMPDIFF(SECOND, MAX(created_at), NOW()) AS s FROM sync_runs");
+    if ($last['s'] === null) {
         return true;
     }
-    return (time() - strtotime($last['t'])) >= SyncSettings::intervalMinutes() * 60;
+    return (int) $last['s'] >= SyncSettings::intervalMinutes() * 60;
 }

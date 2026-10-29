@@ -2,6 +2,8 @@
 /**
  * Open batch tickets and which order lines each is covering.
  * @var array $tickets  @var array $covering  @var ?string $asOf
+ * @var array $readiness  ticket ordr => materials check
+ * @var array $matNames   item_code => description (for shortages)
  */
 require __DIR__ . '/_subnav.php';
 
@@ -27,6 +29,10 @@ $pill = function (array $t) use ($today): string {
             <div class="card-subtitle">
                 MFBA makes bulk ink; MFPP packages it. Inventory only moves when a ticket finishes
                 (BAT/CMP) — until then these are future supply.
+                <?php $nShort = count(array_filter($readiness, fn($r) => $r['status'] === 'short')); ?>
+                <?php if ($nShort > 0): ?>
+                    <strong class="text-danger"><?= $nShort ?> ticket<?= $nShort === 1 ? ' is' : 's are' ?> short the materials needed to make them.</strong>
+                <?php endif; ?>
             </div>
         </div>
         <?php if (user_can('export')): ?>
@@ -41,7 +47,7 @@ $pill = function (array $t) use ($today): string {
         <table class="table">
             <thead>
                 <tr>
-                    <th>Ticket #</th><th>Type</th><th>Status</th><th>Item</th><th>Description</th>
+                    <th>Ticket #</th><th>Type</th><th>Status</th><th>Materials</th><th>Item</th><th>Description</th>
                     <th class="text-right">Qty</th><th>Required</th><th>Cut for</th><th>Covering</th>
                 </tr>
             </thead>
@@ -58,6 +64,23 @@ $pill = function (array $t) use ($today): string {
                     </td>
                     <td><span class="tag"><?= e($t['context'] === 'MFBA' ? 'Bulk (MFBA)' : 'Packaging (MFPP)') ?></span></td>
                     <td class="nowrap"><?= $pill($t) ?></td>
+                    <td style="font-size:0.85rem;">
+                        <?php $r = $readiness[(int) $t['ordr']] ?? null; ?>
+                        <?php if ($r === null): ?>
+                            <span class="text-muted" title="Materials check runs on the next sync">—</span>
+                        <?php elseif ($r['status'] === 'short'): ?>
+                            <span class="pill pill-danger">⚠ Short materials</span>
+                            <?php foreach ($r['shortages'] as $s): ?>
+                                <div class="nowrap" title="<?= e((string) ($matNames[$s['item_code']] ?? '')) ?> — needs <?= fmt_number((float) $s['need'], 1) ?> <?= e($s['unit']) ?>">
+                                    <?= e($s['item_code']) ?> <span class="text-danger">−<?= fmt_number((float) $s['short'], 1) ?> <?= e($s['unit']) ?></span>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php elseif (!empty($r['mfba_short'])): ?>
+                            <span class="pill pill-warn" title="This packaging ticket's batch is short raw materials — see batch <?= (int) ($t['batch_ordr'] ?? 0) ?> above">⚠ Batch short materials</span>
+                        <?php else: ?>
+                            <span class="pill pill-active" title="<?= !empty($r['from_mfba']) ? 'Bulk comes from batch ' . (int) ($t['batch_ordr'] ?? 0) . '; everything else is' : 'All materials are' ?> on hand">✔ On hand</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="nowrap"><?= e($t['item_code']) ?><?= $t['bulk_code'] ? '<div class="tag" title="Bulk consumed">' . e($t['bulk_code']) . '</div>' : '' ?></td>
                     <td><?= e((string) ($t['description'] ?? '')) ?></td>
                     <td class="text-right tabular"><?= fmt_number((float) $t['qty'], 1) ?> <?= e($t['unit']) ?></td>

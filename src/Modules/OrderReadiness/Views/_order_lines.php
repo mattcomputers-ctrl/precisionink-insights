@@ -2,7 +2,33 @@
 /**
  * AJAX fragment: one order's lines (with plain-English coverage) + notes.
  * @var int $ordr  @var array $lines  @var array $notes
+ * @var array $readiness  ticket ordr => materials check
  */
+$materialsWarning = function (array $l) use ($readiness): string {
+    $out = '';
+    foreach (json_decode((string) ($l['allocations'] ?? '[]'), true) ?: [] as $a) {
+        if (($a['type'] ?? '') !== 'ticket') {
+            continue;
+        }
+        $r = $readiness[(int) ($a['ticket'] ?? 0)] ?? null;
+        if ($r === null) {
+            continue;
+        }
+        $batch = (int) ($a['batch'] ?? $a['ticket']);
+        if ($r['status'] === 'short') {
+            $miss = implode(', ', array_map(
+                fn($s) => $s['item_code'] . ' −' . fmt_number((float) $s['short'], 1) . ' ' . $s['unit'],
+                $r['shortages']
+            ));
+            $out .= '<div class="text-danger" style="margin-top:0.25rem;">⚠ Batch ticket ' . $batch
+                . ' can\'t be made yet — short materials: ' . e($miss) . '</div>';
+        } elseif (!empty($r['mfba_short'])) {
+            $out .= '<div class="text-danger" style="margin-top:0.25rem;">⚠ Batch ticket ' . $batch
+                . '\'s bulk batch is short raw materials — see the Batch tickets page.</div>';
+        }
+    }
+    return $out;
+};
 $pill = function (?string $s): string {
     return match ($s) {
         'ready'              => '<span class="pill pill-active">✔ Ready</span>',
@@ -39,7 +65,7 @@ $pill = function (?string $s): string {
                 <td class="text-right tabular"><?= fmt_number((float) $l['qty_used'], 1) ?></td>
                 <td class="text-right tabular"><strong><?= fmt_number((float) $l['qty_remaining'], 1) ?></strong></td>
                 <td class="nowrap"><?= $pill($l['cov_status']) ?></td>
-                <td class="text-muted" style="font-size:0.85rem;max-width:420px;"><?= e((string) ($l['reason'] ?? 'Not yet checked — waiting for the next sync.')) ?></td>
+                <td class="text-muted" style="font-size:0.85rem;max-width:420px;"><?= e((string) ($l['reason'] ?? 'Not yet checked — waiting for the next sync.')) ?><?= $materialsWarning($l) ?></td>
             </tr>
         <?php endforeach; ?>
         </tbody>

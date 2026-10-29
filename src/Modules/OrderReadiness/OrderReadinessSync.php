@@ -31,7 +31,7 @@ class OrderReadinessSync
         SELECT od.Item FROM CMS.dbo.OrdDetail od
         JOIN CMS.dbo.Ordr o ON o.Ordr = od.Ordr
         WHERE o.Context IN ('MFBA','MFPP') AND o.Status NOT IN ('CMP','CLS')
-          AND od.Context = 'PK'
+          AND od.Context IN ('PK','UI')
         UNION
         SELECT ie.Item FROM CMS.dbo.ItemEntity ie
         WHERE ie.Context = 'ST' AND ie.MinimumStock IS NOT NULL
@@ -43,6 +43,7 @@ class OrderReadinessSync
     private array $lines = [];        // list
     private array $tickets = [];      // list
     private array $links = [];        // list
+    private array $materials = [];    // ticket ordr => [item_code => ['qty','unit']]
 
     public function steps(): array
     {
@@ -258,10 +259,15 @@ class OrderReadinessSync
             JOIN CMS.dbo.OrdDetail od ON od.Ordr = o.Ordr AND od.Context = 'PK'
             JOIN CMS.dbo.Item i       ON i.Item = od.Item
             OUTER APPLY (
+                -- The bulk ink consumed, NOT a container: MFPP UI lines also
+                -- carry pails/lids/drums (Context SUNDRY too, unit 'ea', no
+                -- recipe — verified live 2026-10-29). Only bulk has a recipe.
                 SELECT TOP 1 bi.ItemCode
                 FROM CMS.dbo.OrdDetail ub
                 JOIN CMS.dbo.Item bi ON bi.Item = ub.Item
                 WHERE ub.Ordr = o.Ordr AND ub.Context = 'UI' AND bi.Context = 'SUNDRY'
+                  AND bi.CostingRecipe IS NOT NULL
+                ORDER BY bi.ItemCode
             ) blk
             WHERE o.Context IN ('MFBA','MFPP') AND o.Status NOT IN ('CMP','CLS')");
 
@@ -321,6 +327,14 @@ class OrderReadinessSync
                 $hints[(int) $r['DemandOrdr']] = (string) $r['CustomerCode'];
             }
         }
+        // What each open MFBA produces (authoritative bulk item per batch).
+        $mfbaMakes = [];
+        foreach ($this->tickets as $t) {
+            if ($t['context'] === 'MFBA') {
+                $mfbaMakes[$t['ordr']] = $t['item_code'];
+            }
+        }
+
         foreach ($this->tickets as &$t) {
             $t['customer_hint'] = $hints[$t['ordr']] ?? null;
             // People know the MAIN batch order number (the MFBA), never the
@@ -328,10 +342,39 @@ class OrderReadinessSync
             $t['batch_ordr'] = $t['context'] === 'MFBA'
                 ? $t['ordr']
                 : ($batchOf[$t['ordr']] ?? null);
+            // The surest bulk id is what the linked batch MAKES; the SQL
+            // recipe-based pick is only the fallback for orphan MFPPs.
+            if ($t['context'] === 'MFPP' && $t['batch_ordr'] !== null
+                && isset($mfbaMakes[$t['batch_ordr']])) {
+                $t['bulk_code'] = $mfbaMakes[$t['batch_ordr']];
+            }
         }
         unset($t);
 
-        return ['rows' => count($this->tickets) + count($this->links)];
+        // Material (UI) lines per ticket: what each batch consumes. CMS can
+        // list the same material twice on one ticket, so sum per item.
+        // On open tickets nothing is issued yet (QtyUsed is always 0/NULL —
+        // verified live 2026-10-29), but subtract it anyway for safety.
+        $mats = $c->cmsFetchAll('ticket materials', "
+            SELECT od.Ordr, i.ItemCode,
+                   SUM(COALESCE(od.QtyReqd, 0) - COALESCE(od.QtyUsed, 0)) AS Remaining,
+                   MAX(COALESCE(NULLIF(od.SupUnit, ''), i.Unit)) AS Unit
+            FROM CMS.dbo.OrdDetail od
+            JOIN CMS.dbo.Ordr o ON o.Ordr = od.Ordr
+            JOIN CMS.dbo.Item i ON i.Item = od.Item
+            WHERE o.Context IN ('MFBA','MFPP') AND o.Status NOT IN ('CMP','CLS')
+              AND od.Context = 'UI'
+            GROUP BY od.Ordr, i.ItemCode");
+
+        $this->materials = [];
+        foreach ($mats as $r) {
+            $this->materials[(int) $r['Ordr']][(string) $r['ItemCode']] = [
+                'qty'  => max(0.0, (float) $r['Remaining']),
+                'unit' => (string) ($r['Unit'] ?? ''),
+            ];
+        }
+
+        return ['rows' => count($this->tickets) + count($this->links) + count($mats)];
     }
 
     /* ── Step 5: coverage (stage all snapshot tables + results) ── */
@@ -363,6 +406,8 @@ class OrderReadinessSync
         $c->stage('or_order_lines', 'CREATE TABLE {table} LIKE or_order_lines');
         $c->stage('or_tickets',   'CREATE TABLE {table} LIKE or_tickets');
         $c->stage('or_ticket_links', 'CREATE TABLE {table} LIKE or_ticket_links');
+        $c->stage('or_ticket_materials', 'CREATE TABLE {table} LIKE or_ticket_materials');
+        $c->stage('or_ticket_readiness', 'CREATE TABLE {table} LIKE or_ticket_readiness');
         $c->stage('or_coverage_results', 'CREATE TABLE {table} LIKE or_coverage_results');
 
         $c->insertRows('or_items', array_values($this->items));
@@ -371,6 +416,29 @@ class OrderReadinessSync
         $c->insertRows('or_order_lines', $this->lines);
         $c->insertRows('or_tickets', $this->tickets);
         $c->insertRows('or_ticket_links', $this->links);
+
+        // Materials check (Matt, 2026-10-29): do we have what each open
+        // ticket consumes? Same inventory availability as coverage.
+        $matRows = [];
+        foreach ($this->materials as $ordr => $byItem) {
+            foreach ($byItem as $code => $m) {
+                $matRows[] = ['ordr' => $ordr, 'item_code' => $code, 'qty_reqd' => $m['qty'], 'unit' => $m['unit']];
+            }
+        }
+        $c->insertRows('or_ticket_materials', $matRows);
+
+        $readiness = TicketMaterialsEngine::compute($this->tickets, $this->materials, $inventoryQty);
+        $readyRows = [];
+        foreach ($readiness as $ordr => $r) {
+            $readyRows[] = [
+                'ordr'       => $ordr,
+                'status'     => $r['status'],
+                'shortages'  => json_encode($r['shortages'], JSON_UNESCAPED_SLASHES),
+                'from_mfba'  => $r['from_mfba'],
+                'mfba_short' => $r['mfba_short'],
+            ];
+        }
+        $c->insertRows('or_ticket_readiness', $readyRows);
 
         $covRows = [];
         $byDetail = [];
@@ -398,6 +466,8 @@ class OrderReadinessSync
         $c->queueSwap('or_order_lines', 0);
         $c->queueSwap('or_tickets', 0);
         $c->queueSwap('or_ticket_links', 0);
+        $c->queueSwap('or_ticket_materials', 0);
+        $c->queueSwap('or_ticket_readiness', 0);
         $c->queueSwap('or_coverage_results', 0);
 
         return ['rows' => count($covRows)];

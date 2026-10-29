@@ -104,7 +104,7 @@ number); every recalculation (§8.1) allocates strictly in that order.
 
 ## 8. Sync-job queries (what the engine reads, per run)
 
-Seven set-based queries, each filtered to open/current rows only:
+Eight set-based queries, each filtered to open/current rows only:
 
 1. Items & minimums: `Item` ⟕ `ItemEntity (ST)` for items that are on an open
    order, an open ticket, or have a minimum.
@@ -114,6 +114,14 @@ Seven set-based queries, each filtered to open/current rows only:
 5. Open tickets: `Ordr MFBA/MFPP NOT IN (CMP,CLS)` + PK line (+ UI bulk line
    for MFPP) + `BatchingOrders` metadata for MFBA.
 6. Ticket chains: `BatchSheetDemand` (MFBA→MFPP, CustomerCode hint).
-7. Last-made dates for suggestion items.
+7. Ticket materials: `OrdDetail UI` on open MFBA/MFPP tickets, summed per
+   (ticket, item) — the same material can appear twice on one ticket. All
+   open-ticket UI items are Context `SUNDRY`; `QtyUsed` is always 0/NULL
+   until the ticket completes (verified live 2026-10-29), so the remaining
+   requirement is simply `QtyReqd`. MFBA UI lines = raw materials. MFPP UI
+   lines = the bulk it packages PLUS its containers (pails/lids/drums —
+   also `SUNDRY`, unit 'ea', no recipe). The bulk is identified as the item
+   the linked MFBA makes (fallback: the UI item with a CostingRecipe).
+8. Last-made dates for suggestion items.
 
 All each a few hundred rows; well under the 60 s target.

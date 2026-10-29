@@ -26,8 +26,11 @@ class SyncStatus
         ];
 
         // Syncing / queued?
+        // queued_secs comes from the database clock (created_at's writer);
+        // PHP's time() may be in a different timezone than MySQL.
         $active = $db->fetch(
-            "SELECT sr.*, u.display_name, u.username
+            "SELECT sr.*, u.display_name, u.username,
+                    TIMESTAMPDIFF(SECOND, sr.created_at, NOW()) AS queued_secs
              FROM sync_runs sr
              LEFT JOIN users u ON u.id = sr.triggered_by
              WHERE sr.status IN ('queued','running')
@@ -36,8 +39,7 @@ class SyncStatus
         if ($active) {
             // A run that sits queued and never starts means the background
             // worker is down — say so instead of showing "Updating…" forever.
-            if ($active['status'] === 'queued'
-                && time() - strtotime($active['created_at']) > 90) {
+            if ($active['status'] === 'queued' && (int) $active['queued_secs'] > 90) {
                 return $base + [
                     'state'     => 'problem',
                     'failed_at' => $active['created_at'],
