@@ -6,6 +6,7 @@ namespace PII\Core;
 
 use PII\Middleware\AuthMiddleware;
 use PII\Modules\MarginWatchdog\MarginWatchdogModule;
+use PII\Modules\OrderReadiness\OrderReadinessModule;
 use PII\Modules\Scheduling\SchedulingModule;
 
 /**
@@ -119,6 +120,7 @@ class App
     private static function buildModuleRegistry(): ModuleRegistry
     {
         $registry = new ModuleRegistry();
+        $registry->register(new OrderReadinessModule());
         $registry->register(new MarginWatchdogModule());
         $registry->register(new SchedulingModule());
         // Future tabs go here:

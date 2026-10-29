@@ -100,6 +100,13 @@ $routes = [
     ['/scheduling',                            200, 200, 200, 404, 404, 404, 404],
     ['/scheduling/generate?week=bad',          400, 400, 400, 404, 404, 404, 404],
     ['/scheduling/settings',                   200, 404, 200, 404, 404, 404, 404],
+    ['/orders',                                200, 200, 200, 200, 200, 200, 404],
+    ['/orders/list',                           200, 200, 200, 200, 200, 200, 404],
+    ['/orders/by-item',                        200, 200, 200, 200, 200, 404, 404],
+    ['/orders/tickets',                        200, 200, 200, 200, 404, 404, 404],
+    ['/orders/production',                     200, 200, 200, 404, 404, 404, 404],
+    ['/orders/notes',                          200, 200, 200, 200, 200, 200, 404],
+    ['/orders/export/orders?format=csv',       200, 200, 200, 200, 200, 404, 404],
     ['/admin/users',                           200, 404, 404, 404, 404, 404, 404],
     ['/admin/groups',                          200, 404, 404, 404, 404, 404, 404],
     ['/admin/settings',                        200, 404, 404, 404, 404, 404, 404],
@@ -113,10 +120,10 @@ $cols = ['crawl_admin', 'crawl_exec', 'crawl_prod', 'crawl_ship', 'crawl_sales',
 $expectedLanding = [
     'crawl_admin' => '/',                 // admins: no group default → Home
     'crawl_exec'  => '/margin-watchdog',  // Executives group default
-    'crawl_prod'  => '/scheduling',       // order_readiness not installed → only visible module
-    'crawl_ship'  => '/',                 // nothing visible yet → Home
-    'crawl_sales' => '/',
-    'crawl_ro'    => '/',
+    'crawl_prod'  => '/orders',           // Production group default (Order Readiness)
+    'crawl_ship'  => '/orders',
+    'crawl_sales' => '/orders',
+    'crawl_ro'    => '/orders',           // only visible module anyway
     'crawl_none'  => '/',
 ];
 
@@ -131,16 +138,16 @@ $navExpectations = [
         ['href="/admin/users"', 'href="/admin/settings"', 'href="/admin/audit-log"'],
     ],
     'crawl_prod' => [
-        ['href="/scheduling"'],
+        ['href="/scheduling"', 'href="/orders"'],
         ['href="/margin-watchdog"', 'href="/preferences"', 'href="/presets"', 'href="/admin/users"', 'CMS unavailable', 'Margin Watchdog'],
     ],
     'crawl_ship' => [
-        [],
+        ['href="/orders"', 'Order Readiness'],
         ['href="/margin-watchdog"', 'href="/scheduling"', 'href="/admin/users"', 'CMS unavailable', 'Margin Watchdog', 'Scheduling'],
     ],
     'crawl_none' => [
         [],
-        ['href="/margin-watchdog"', 'href="/scheduling"', 'href="/admin/users"', 'CMS unavailable'],
+        ['href="/margin-watchdog"', 'href="/scheduling"', 'href="/orders"', 'href="/admin/users"', 'CMS unavailable'],
     ],
 ];
 

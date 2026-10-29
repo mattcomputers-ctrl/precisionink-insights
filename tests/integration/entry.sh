@@ -49,6 +49,11 @@ if [ "$CRAWL" -eq 0 ]; then
     php tests/integration/sync-flow.php http://127.0.0.1:8080
     CRAWL=$?
 fi
+if [ "$CRAWL" -eq 0 ]; then
+    echo "[entry] running order-readiness flow test…"
+    php tests/integration/or-flow.php http://127.0.0.1:8080
+    CRAWL=$?
+fi
 set -e
 
 if [ "$CRAWL" -ne 0 ]; then
