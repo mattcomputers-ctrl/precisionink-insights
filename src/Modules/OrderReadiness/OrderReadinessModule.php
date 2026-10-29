@@ -54,6 +54,7 @@ class OrderReadinessModule extends Module
             $r->post('/priority',         $c . '@savePriority');
             $r->get('/by-item',           $c . '@byItem');
             $r->get('/tickets',           $c . '@tickets');
+            $r->get('/short-materials',   $c . '@shortMaterials');
             $r->get('/production',        $c . '@production');
             $r->post('/production/mark',  $c . '@markSuggestion');
             $r->get('/notes',             $c . '@notes');

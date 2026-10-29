@@ -299,14 +299,122 @@ class OrderReadinessController
 
         $batches = $this->batchGroups($tickets);
 
+        $search = trim((string) ($_GET['q'] ?? ''));
+        if ($search !== '') {
+            $batches = array_values(array_filter($batches, function ($g) use ($search) {
+                $hay = $g['batch'] . ' ' . ($g['customer_hint'] ?? '');
+                foreach (array_merge($g['mfba'] !== null ? [$g['mfba']] : [], $g['packs']) as $t) {
+                    $hay .= ' ' . $t['item_code'] . ' ' . ($t['description'] ?? '') . ' ' . ($t['bulk_code'] ?? '');
+                }
+                return stripos($hay, $search) !== false;
+            }));
+        }
+
         layout('order_readiness::tickets', [
             'pageTitle' => 'Batch tickets',
             'batches'   => $batches,
+            'search'    => $search,
             'covering'  => $covering,
             'readiness' => $readiness,
             'matNames'  => $matNames,
             'asOf'      => SyncSettings::lastSuccessAt(),
         ], 'order_readiness');
+    }
+
+    /* ── Short materials (consolidated across all open tickets) ── */
+
+    public function shortMaterials(): void
+    {
+        require_permission('orders.tickets_view');
+        $search = trim((string) ($_GET['q'] ?? ''));
+
+        $rows = $this->shortMaterialRows();
+        if ($search !== '') {
+            $rows = array_values(array_filter($rows, fn($r) =>
+                stripos($r['item_code'] . ' ' . $r['description'], $search) !== false));
+        }
+
+        layout('order_readiness::short_materials', [
+            'pageTitle' => 'Short materials',
+            'rows'      => $rows,
+            'search'    => $search,
+            'asOf'      => SyncSettings::lastSuccessAt(),
+        ], 'order_readiness');
+    }
+
+    /**
+     * One row per material that any open ticket is short of: how much is
+     * missing in total to complete the tickets on hand, plus what's on
+     * hand / already on order, and which batches need it (Matt, 2026-10-29).
+     */
+    private function shortMaterialRows(): array
+    {
+        $db = Database::getInstance();
+
+        $tickets = [];
+        foreach ($db->fetchAll("SELECT ordr, context, batch_ordr, item_code, date_required FROM or_tickets") as $t) {
+            $tickets[(int) $t['ordr']] = $t;
+        }
+
+        $byMat = [];
+        foreach ($this->ticketReadiness() as $ordr => $r) {
+            if ($r['status'] !== 'short') {
+                continue;
+            }
+            $t = $tickets[$ordr] ?? null;
+            foreach ($r['shortages'] as $s) {
+                $code = $s['item_code'];
+                $byMat[$code] ??= [
+                    'item_code' => $code, 'unit' => (string) ($s['unit'] ?? ''),
+                    'short' => 0.0, 'need' => 0.0, 'batches' => [], 'earliest' => null,
+                ];
+                $byMat[$code]['short'] += (float) $s['short'];
+                $byMat[$code]['need']  += (float) $s['need'];
+                $due = $t['date_required'] ?? null;
+                $byMat[$code]['batches'][] = [
+                    'batch' => (int) ($t['batch_ordr'] ?? $ordr),
+                    'makes' => (string) ($t['item_code'] ?? ''),
+                    'short' => (float) $s['short'],
+                    'due'   => $due,
+                ];
+                if ($due !== null && ($byMat[$code]['earliest'] === null || $due < $byMat[$code]['earliest'])) {
+                    $byMat[$code]['earliest'] = $due;
+                }
+            }
+        }
+        if ($byMat === []) {
+            return [];
+        }
+
+        // Names, on-hand and on-order for just these materials.
+        $in = implode(',', array_fill(0, count($byMat), '?'));
+        $codes = array_keys($byMat);
+        foreach ($db->fetchAll(
+            "SELECT i.item_code, i.description, COALESCE(v.qty_usable, 0) AS on_hand
+             FROM or_items i LEFT JOIN or_inventory v ON v.item_code = i.item_code
+             WHERE i.item_code IN ({$in})", $codes) as $r) {
+            $byMat[$r['item_code']]['description'] = $r['description'];
+            $byMat[$r['item_code']]['on_hand'] = (float) $r['on_hand'];
+        }
+        try {
+            foreach ($db->fetchAll(
+                "SELECT item_code, qty_on_po FROM inv_items WHERE item_code IN ({$in})", $codes) as $r) {
+                $byMat[$r['item_code']]['on_po'] = (float) $r['qty_on_po'];
+            }
+        } catch (\Throwable $e) {
+            // Inventory Browser snapshot not there yet — column shows "—"
+        }
+
+        foreach ($byMat as &$m) {
+            $m += ['description' => '', 'on_hand' => 0.0, 'on_po' => null];
+            usort($m['batches'], fn($a, $b) => [$a['due'] ?? '9999', $a['batch']] <=> [$b['due'] ?? '9999', $b['batch']]);
+        }
+        unset($m);
+
+        $rows = array_values($byMat);
+        usort($rows, fn($a, $b) =>
+            [$a['earliest'] ?? '9999', -$a['short']] <=> [$b['earliest'] ?? '9999', -$b['short']]);
+        return $rows;
     }
 
     /* ── Production plan ───────────────────────────────────────── */
@@ -325,6 +433,12 @@ class OrderReadinessController
              LEFT JOIN users u ON u.id = m.user_id
              ORDER BY FIELD(s.severity, 'negative','below','near'), s.shortfall DESC"
         );
+
+        $search = trim((string) ($_GET['q'] ?? ''));
+        if ($search !== '') {
+            $rows = array_values(array_filter($rows, fn($r) =>
+                stripos($r['item_code'] . ' ' . ($r['description'] ?? '') . ' ' . ($r['recipe_number'] ?? ''), $search) !== false));
+        }
 
         // Reactivated / newly-discontinued badges (§8.2).
         $badgeDays = Settings::getInt('or.badge_days', 14);
@@ -350,6 +464,7 @@ class OrderReadinessController
             'rows'      => $rows,
             'badges'    => $badges,
             'canMark'   => user_can('production.mark'),
+            'search'    => $search,
             'asOf'      => SyncSettings::lastSuccessAt(),
         ], 'order_readiness');
     }
@@ -427,6 +542,7 @@ class OrderReadinessController
             'orders' => $this->exportOrders(),
             'production' => $this->exportProduction($db),
             'tickets' => $this->exportTickets($db),
+            'short-materials' => $this->exportShortMaterials(),
             default => [null, [], []],
         };
         if ($title === null) {
@@ -529,6 +645,25 @@ class OrderReadinessController
             ];
         }
         return ['Open batch tickets', ['Batch #', 'Status', 'Materials', 'Bulk item', 'Description', 'Batch qty', 'Unit', 'Required', 'Packaging', 'Cut for'], $rows];
+    }
+
+    private function exportShortMaterials(): array
+    {
+        $rows = [];
+        foreach ($this->shortMaterialRows() as $m) {
+            $rows[] = [
+                $m['item_code'], $m['description'], $m['unit'],
+                round($m['short'], 2), $m['on_hand'], $m['on_po'],
+                $m['earliest'],
+                implode("\n", array_map(
+                    fn($b) => 'batch ' . $b['batch'] . ' (' . $b['makes'] . '): '
+                        . rtrim(rtrim(number_format($b['short'], 2, '.', ''), '0'), '.')
+                        . ($b['due'] !== null ? ', due ' . $b['due'] : ''),
+                    $m['batches']
+                )),
+            ];
+        }
+        return ['Short materials', ['Material', 'Description', 'Unit', 'Short (to complete open tickets)', 'On hand', 'On open POs', 'First needed', 'Needed by batches'], $rows];
     }
 
     /* ── Shared helpers ────────────────────────────────────────── */

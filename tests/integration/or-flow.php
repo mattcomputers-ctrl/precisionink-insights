@@ -176,6 +176,32 @@ ok(str_contains($frag['body'], 'Batch ticket 7000') && str_contains($frag['body'
     'order drill-down explains the batch is short materials (by MAIN batch number)');
 ok(str_contains($frag['body'], 'VEC-7'), 'drill-down names the missing material');
 
+// Consolidated short-materials tab (Matt, 2026-10-29).
+$page = $ship->get('/orders/short-materials');
+ok($page['status'] === 200 && str_contains($page['body'], 'VEC-7'), 'short-materials tab lists the material');
+ok(str_contains($page['body'], 'TEST VEHICLE RESIN'), 'material description shown');
+ok(str_contains($page['body'], '12.5'), 'total short quantity shown');
+ok(str_contains($page['body'], 'batch 7000'), 'names the master batch needing it');
+$page = $ship->get('/orders/short-materials?q=VEC');
+ok(str_contains($page['body'], 'VEC-7'), 'short-materials search matches');
+$page = $ship->get('/orders/short-materials?q=zzz-none');
+ok(!str_contains($page['body'], 'VEC-7'), 'short-materials search filters out non-matches');
+$csv = $ship->get('/orders/export/short-materials?format=csv');
+ok($csv['status'] === 200 && str_contains($csv['body'], 'VEC-7') && str_contains($csv['body'], '12.5'),
+    'short-materials export works');
+
+// Search on batch tickets and the production plan (Matt, 2026-10-29).
+$page = $ship->get('/orders/tickets?q=A-50');
+ok(str_contains($page['body'], '7000'), 'tickets search finds the batch by pack item');
+$page = $ship->get('/orders/tickets?q=zzz-none');
+ok(!str_contains($page['body'], '7000') && str_contains($page['body'], 'No batch matches'),
+    'tickets search filters out non-matches');
+$page = $prod->get('/orders/production?q=A-50');
+ok(str_contains($page['body'], 'A-50'), 'production search finds the item');
+$page = $prod->get('/orders/production?q=zzz-none');
+ok(!str_contains($page['body'], 'TEST BLUE INK') && str_contains($page['body'], 'matches your search'),
+    'production search filters out non-matches');
+
 $csv = $ship->get('/orders/export/tickets?format=csv');
 if ($csv['status'] === 200) {
     ok(str_contains($csv['body'], 'Materials') && str_contains($csv['body'], 'VEC-7 -12.5 lb'),

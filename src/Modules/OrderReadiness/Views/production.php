@@ -1,7 +1,8 @@
 <?php
 /**
  * Production plan (§8.3) — print-friendly for the production meeting.
- * @var array $rows  @var array $badges  @var bool $canMark  @var ?string $asOf
+ * @var array $rows  @var array $badges  @var bool $canMark
+ * @var string $search  @var ?string $asOf
  */
 require __DIR__ . '/_subnav.php';
 
@@ -21,6 +22,10 @@ $sevPill = fn(string $s) => match ($s) {
                 is near or below their minimum. Discontinued items never appear here.
             </div>
         </div>
+        <form method="GET" action="/orders/production" class="flex gap-1">
+            <input type="text" name="q" value="<?= e($search) ?>" placeholder="Item, description or recipe…" style="min-width:220px;">
+            <button type="submit" class="btn btn-sm">Search</button>
+        </form>
         <div class="flex gap-1">
             <button type="button" class="btn btn-sm" onclick="window.print()">🖨 Print</button>
             <?php if (user_can('export')): ?>
@@ -30,7 +35,7 @@ $sevPill = fn(string $s) => match ($s) {
     </div>
 
     <?php if ($rows === []): ?>
-        <div class="empty-state"><span class="empty-icon">🎉</span>Nothing needs making — everything is above minimum.</div>
+        <div class="empty-state"><span class="empty-icon">🎉</span><?= $search !== '' ? 'Nothing on the plan matches your search.' : 'Nothing needs making — everything is above minimum.' ?></div>
     <?php else: ?>
     <div class="table-scroll">
         <table class="table">

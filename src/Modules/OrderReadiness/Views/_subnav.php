@@ -4,7 +4,10 @@ $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $links = [['/orders', 'Overview']];
 $links[] = ['/orders/list', 'Orders'];
 if (user_can('orders.items_view'))   { $links[] = ['/orders/by-item', 'By item']; }
-if (user_can('orders.tickets_view')) { $links[] = ['/orders/tickets', 'Batch tickets']; }
+if (user_can('orders.tickets_view')) {
+    $links[] = ['/orders/tickets', 'Batch tickets'];
+    $links[] = ['/orders/short-materials', 'Short materials'];
+}
 if (user_can('production.view'))     { $links[] = ['/orders/production', 'Production plan']; }
 $links[] = ['/orders/notes', 'Notes'];
 ?>

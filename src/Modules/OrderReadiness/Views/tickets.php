@@ -6,7 +6,7 @@
  * @var array $covering  internal ticket ordr => order lines it covers
  * @var array $readiness ticket ordr => materials check
  * @var array $matNames  item_code => description (for shortages)
- * @var ?string $asOf
+ * @var string $search  @var ?string $asOf
  */
 require __DIR__ . '/_subnav.php';
 
@@ -67,13 +67,17 @@ $nShort = count(array_filter($batches, $batchShort));
                 <?php endif; ?>
             </div>
         </div>
+        <form method="GET" action="/orders/tickets" class="flex gap-1">
+            <input type="text" name="q" value="<?= e($search) ?>" placeholder="Batch #, item, customer…" style="min-width:220px;">
+            <button type="submit" class="btn btn-sm">Search</button>
+        </form>
         <?php if (user_can('export')): ?>
             <a href="/orders/export/tickets" class="btn btn-sm" data-export="1">⬇ Excel</a>
         <?php endif; ?>
     </div>
 
     <?php if ($batches === []): ?>
-        <div class="empty-state"><span class="empty-icon">📭</span>No open batch tickets.</div>
+        <div class="empty-state"><span class="empty-icon">📭</span><?= $search !== '' ? 'No batch matches your search.' : 'No open batch tickets.' ?></div>
     <?php else: ?>
     <div class="table-scroll">
         <table class="table">
