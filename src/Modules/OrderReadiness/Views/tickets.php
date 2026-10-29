@@ -50,7 +50,12 @@ $pill = function (array $t) use ($today): string {
                 $overdue = $t['date_required'] !== null && $t['date_required'] < $today;
             ?>
                 <tr>
-                    <td><strong><?= (int) $t['ordr'] ?></strong></td>
+                    <td>
+                        <strong><?= (int) ($t['batch_ordr'] ?? $t['ordr']) ?></strong>
+                        <?php if ($t['context'] === 'MFPP' && !empty($t['batch_ordr']) && (int) $t['batch_ordr'] !== (int) $t['ordr']): ?>
+                            <div class="tag" title="Packaging order on the same batch ticket">pack <?= (int) $t['ordr'] ?></div>
+                        <?php endif; ?>
+                    </td>
                     <td><span class="tag"><?= e($t['context'] === 'MFBA' ? 'Bulk (MFBA)' : 'Packaging (MFPP)') ?></span></td>
                     <td class="nowrap"><?= $pill($t) ?></td>
                     <td class="nowrap"><?= e($t['item_code']) ?><?= $t['bulk_code'] ? '<div class="tag" title="Bulk consumed">' . e($t['bulk_code']) . '</div>' : '' ?></td>

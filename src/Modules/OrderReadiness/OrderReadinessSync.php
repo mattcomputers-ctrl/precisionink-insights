@@ -306,6 +306,7 @@ class OrderReadinessSync
 
         $this->links = [];
         $hints = [];
+        $batchOf = [];   // MFPP packaging order → its MAIN batch (MFBA) order
         foreach ($links as $r) {
             $this->links[] = [
                 'supply_ordr'    => (int) $r['SupplyOrdr'],
@@ -314,6 +315,7 @@ class OrderReadinessSync
                 'qty_make'       => (float) ($r['QtyMake'] ?? 0),
                 'customer_code'  => $r['CustomerCode'] !== null && $r['CustomerCode'] !== '' ? (string) $r['CustomerCode'] : null,
             ];
+            $batchOf[(int) $r['DemandOrdr']] = (int) $r['SupplyOrdr'];
             if (!empty($r['CustomerCode'])) {
                 $hints[(int) $r['SupplyOrdr']] = (string) $r['CustomerCode'];
                 $hints[(int) $r['DemandOrdr']] = (string) $r['CustomerCode'];
@@ -321,6 +323,11 @@ class OrderReadinessSync
         }
         foreach ($this->tickets as &$t) {
             $t['customer_hint'] = $hints[$t['ordr']] ?? null;
+            // People know the MAIN batch order number (the MFBA), never the
+            // packaging order's internal row (Matt, 2026-10-29).
+            $t['batch_ordr'] = $t['context'] === 'MFBA'
+                ? $t['ordr']
+                : ($batchOf[$t['ordr']] ?? null);
         }
         unset($t);
 
@@ -423,10 +430,26 @@ class OrderReadinessSync
         foreach ($this->lines as $l) {
             $demand[$l['item_code']] = ($demand[$l['item_code']] ?? 0) + $l['qty_remaining'];
         }
+
+        // Open-ticket supply per item (Matt, 2026-10-29: the production plan
+        // must take open tickets into account):
+        //   MFPP  → + pack output, − the bulk it will consume
+        //   MFBA  → + bulk output
+        // A ticket whose qty CMS hasn't filled in yet credits nothing, but
+        // still flags the item as "already on an open ticket" (open_ticket).
         $supply = [];
+        $openTicketRef = [];
         foreach ($this->tickets as $t) {
+            $ref = $t['batch_ordr'] ?? $t['ordr'];
             if ($t['context'] === 'MFPP') {
                 $supply[$t['item_code']] = ($supply[$t['item_code']] ?? 0) + $t['qty'];
+                $openTicketRef[$t['item_code']] ??= $ref;
+                if ($t['bulk_code'] !== null) {
+                    $supply[$t['bulk_code']] = ($supply[$t['bulk_code']] ?? 0) - $t['qty'];
+                }
+            } else {   // MFBA
+                $supply[$t['item_code']] = ($supply[$t['item_code']] ?? 0) + $t['qty'];
+                $openTicketRef[$t['item_code']] ??= $ref;
             }
         }
 
@@ -441,6 +464,7 @@ class OrderReadinessSync
                 'open_demand'     => $demand[$code] ?? 0,
                 'recipe_number'   => $it['recipe_number'],
                 'last_made'       => $it['last_made'],
+                'open_ticket'     => $openTicketRef[$code] ?? null,
             ];
         }
 

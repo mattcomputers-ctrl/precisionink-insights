@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PII\Core;
 
 use PII\Middleware\AuthMiddleware;
+use PII\Modules\InventoryBrowser\InventoryBrowserModule;
 use PII\Modules\MarginWatchdog\MarginWatchdogModule;
 use PII\Modules\OrderReadiness\OrderReadinessModule;
 use PII\Modules\Scheduling\SchedulingModule;
@@ -121,6 +122,7 @@ class App
     {
         $registry = new ModuleRegistry();
         $registry->register(new OrderReadinessModule());
+        $registry->register(new InventoryBrowserModule());
         $registry->register(new MarginWatchdogModule());
         $registry->register(new SchedulingModule());
         // Future tabs go here:

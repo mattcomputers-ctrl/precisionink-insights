@@ -37,6 +37,16 @@ t_check(str_contains($r[1]['reason'], 'batch ticket 88123'), 'reason names the t
 t_check(str_contains($r[1]['reason'], 'released'), 'reason has the status word');
 t_check(str_contains($r[1]['reason'], 'Nov 3'), 'reason has the due date');
 
+// An MFPP packaging ticket must be named by its MAIN batch (MFBA) number.
+$r = CoverageEngine::compute($orders,
+    [['ord_detail' => 1, 'ordr' => 100, 'item_code' => 'A-50', 'qty_remaining' => 50, 'unit' => 'lb', 'alias_code' => 'X']],
+    $items, [],
+    [['ordr' => 193803, 'batch_ordr' => 193802, 'item_code' => 'A-50', 'qty' => 50, 'unit' => 'lb', 'status' => 'NST', 'date_required' => '2026-10-19', 'context' => 'MFPP']]);
+t_check(str_contains($r[1]['reason'], 'batch ticket 193802'), 'reason names the MAIN batch number');
+t_check(!str_contains($r[1]['reason'], '193803'), 'reason never shows the internal packaging order');
+t_check(($r[1]['allocations'][0]['batch'] ?? null) === 193802, 'allocation carries the batch number');
+t_check(($r[1]['allocations'][0]['ticket'] ?? null) === 193803, 'allocation keeps the internal id for joins');
+
 t_section('CoverageEngine: competing orders, priority wins');
 
 $lines = [
@@ -134,3 +144,10 @@ t_same(30.0, $s['LOW-50']['shortfall'], 'LOW-50 shortfall');
 t_same(90.0, $s['LOW-50']['suggested_qty'], 'LOW-50 rounded up to one standard batch');
 // NEG-50: projected -75, target 0 → shortfall 75, no batch size → 75 raw.
 t_same(75.0, $s['NEG-50']['suggested_qty'], 'NEG-50 suggests raw shortfall');
+
+// Open-ticket passthrough: the plan shows which batch is already cut.
+$s2 = SuggestionEngine::compute([
+    'BULK' => ['has_recipe' => 1, 'is_discontinued' => 0, 'minimum_stock' => 150.0,
+               'on_hand' => 2, 'on_tickets' => 0, 'open_demand' => 0, 'open_ticket' => 194236],
+], [], 20.0);
+t_check(($s2['BULK']['open_ticket'] ?? null) === 194236, 'open_ticket carried onto the suggestion row');

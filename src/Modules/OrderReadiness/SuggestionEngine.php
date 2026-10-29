@@ -70,6 +70,9 @@ class SuggestionEngine
                 'suggested_qty' => round($suggested, 4),
                 'recipe_number' => $it['recipe_number'] ?? null,
                 'last_made'     => $it['last_made'] ?? null,
+                // An open ticket already producing this item (main batch
+                // number) — shown so nobody cuts a duplicate batch.
+                'open_ticket'   => $it['open_ticket'] ?? null,
             ];
         }
 

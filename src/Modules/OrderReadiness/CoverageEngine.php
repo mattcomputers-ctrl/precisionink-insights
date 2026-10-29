@@ -41,6 +41,8 @@ class CoverageEngine
         foreach ($tickets as $t) {
             $ticketPool[$t['item_code']][] = [
                 'ordr'          => $t['ordr'],
+                // The MAIN batch order number — what production recognises.
+                'batch'         => $t['batch_ordr'] ?? $t['ordr'],
                 'remaining'     => max(0.0, (float) $t['qty']),
                 'unit'          => $t['unit'] ?? '',
                 'status'        => $t['status'] ?? '',
@@ -107,7 +109,8 @@ class CoverageEngine
                     $covered += $take;
                     $allocations[] = [
                         'type'          => 'ticket',
-                        'ticket'        => $t['ordr'],
+                        'ticket'        => $t['ordr'],      // internal (joins)
+                        'batch'         => $t['batch'],     // what people see
                         'qty'           => round($take, 4),
                         'status'        => $t['status'],
                         'date_required' => $t['date_required'],
@@ -186,7 +189,7 @@ class CoverageEngine
                 $due = !empty($a['date_required'])
                     ? ', due ' . date('M j', strtotime($a['date_required']))
                     : '';
-                $parts[] = $fmt($a['qty']) . $u . ' coming from batch ticket ' . $a['ticket']
+                $parts[] = $fmt($a['qty']) . $u . ' coming from batch ticket ' . ($a['batch'] ?? $a['ticket'])
                     . ' (' . $statusWord . $due . ').';
             }
         }

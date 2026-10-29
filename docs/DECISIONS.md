@@ -139,6 +139,19 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     Administrators) — changing priority changes who gets stock, which is a
     production-floor call.
 
+## 2026-10-29 — Post-deploy corrections (Matt)
+
+39. **Ticket numbers:** every user-facing ticket reference is the MAIN batch
+    order number (the MFBA, e.g. 193802) — never the MFPP packaging order's
+    internal row (193803), which nobody recognises. CMS has no separate
+    human ticket number (Reference/ManfLot/Lot are all empty on open
+    tickets; verified live). Internal ids are kept in allocations for joins.
+40. **Production plan counts ALL open tickets:** MFBA output credits the
+    bulk item, MFPP output credits the pack and debits the bulk it consumes.
+    Tickets CMS hasn't put a quantity on yet (live rows exist) credit
+    nothing but still flag the item with "⏳ ticket N open" on the plan so
+    nobody cuts a duplicate batch.
+
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of

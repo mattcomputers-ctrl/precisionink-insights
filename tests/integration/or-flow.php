@@ -78,8 +78,8 @@ $pdo->exec("INSERT INTO or_order_lines (ord_detail, ordr, item_code, alias_code,
     (1, 9001, 'A-50', 'CUST-A', 'CUSTOMER BLUE', 100, 0, 100, 0, 'lb'),
     (2, 9002, 'A-50', 'CUST-A', 'CUSTOMER BLUE',  50, 0,  50, 0, 'lb'),
     (3, 9002, 'D-50', 'CUST-D', 'CUSTOMER OLD RED', 10, 0, 10, 0, 'lb')");
-$pdo->exec("INSERT INTO or_tickets (ordr, context, status, item_code, qty, unit, date_required, customer_hint) VALUES
-    (7001, 'MFPP', 'RLS', 'A-50', 60, 'lb', '2026-11-03', 'PRIORITY CO')");
+$pdo->exec("INSERT INTO or_tickets (ordr, context, status, item_code, qty, unit, date_required, customer_hint, batch_ordr) VALUES
+    (7001, 'MFPP', 'RLS', 'A-50', 60, 'lb', '2026-11-03', 'PRIORITY CO', 7000)");
 $pdo->exec("INSERT INTO or_order_priority (ordr, position) VALUES (9001, 1), (9002, 2)");
 $pdo->exec("INSERT INTO or_production_suggestions (item_code, severity, minimum_stock, on_hand, on_tickets, open_demand, projected, shortfall, suggested_qty, recipe_number) VALUES
     ('A-50', 'below', 100, 80, 60, 150, -10, 110, 150, 'A.03')");
@@ -104,7 +104,7 @@ ok(($cov[1]['status'] ?? '') === 'waiting', 'priority order line waits on the ti
 ok(($cov[2]['status'] ?? '') === 'short' && abs((float) $cov[2]['shortfall'] - 10.0) < 1e-6,
     'second order shorts by 10 (got ' . ($cov[2]['shortfall'] ?? '?') . ')');
 ok(($cov[3]['status'] ?? '') === 'short_discontinued', 'discontinued line flagged');
-ok(str_contains((string) $cov[1]['reason'], 'batch ticket 7001'), 'reason names ticket 7001');
+ok(str_contains((string) $cov[1]['reason'], 'batch ticket 7000'), 'reason names the MAIN batch number (7000), not the packaging order');
 
 /* ── Reversed priority flips who gets the stock ─────────────────── */
 $resp = $prod->post('/orders/priority', [

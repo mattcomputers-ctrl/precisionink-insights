@@ -446,10 +446,10 @@ class OrderReadinessController
             $rows[] = [
                 $s['item_code'], $s['description'], ucfirst($s['severity']), $s['minimum_stock'],
                 $s['on_hand'], $s['on_tickets'], $s['open_demand'], $s['projected'],
-                $s['shortfall'], $s['suggested_qty'], $s['recipe_number'], $s['last_made'],
+                $s['shortfall'], $s['suggested_qty'], $s['open_ticket'] ?? '', $s['recipe_number'], $s['last_made'],
             ];
         }
-        return ['Production plan', ['Item', 'Description', 'Severity', 'Minimum', 'On hand', 'On tickets', 'Open demand', 'Projected', 'Shortfall', 'Suggested qty', 'Recipe', 'Last made'], $rows];
+        return ['Production plan', ['Item', 'Description', 'Severity', 'Minimum', 'On hand', 'On tickets', 'Open demand', 'Projected', 'Shortfall', 'Suggested qty', 'Open ticket #', 'Recipe', 'Last made'], $rows];
     }
 
     private function exportTickets(Database $db): array

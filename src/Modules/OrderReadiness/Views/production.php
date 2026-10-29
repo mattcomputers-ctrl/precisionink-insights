@@ -57,7 +57,11 @@ $sevPill = fn(string $s) => match ($s) {
                         <?php endif; ?>
                     </td>
                     <td><?= e((string) ($r['description'] ?? '')) ?></td>
-                    <td class="nowrap"><?= $sevPill($r['severity']) ?></td>
+                    <td class="nowrap"><?= $sevPill($r['severity']) ?>
+                        <?php if (!empty($r['open_ticket'])): ?>
+                            <span class="pill pill-info" title="An open batch ticket already exists for this item — check it before cutting another.">⏳ ticket <?= (int) $r['open_ticket'] ?></span>
+                        <?php endif; ?>
+                    </td>
                     <td class="text-right tabular"><?= $r['minimum_stock'] !== null ? fmt_number((float) $r['minimum_stock'], 0) : '—' ?></td>
                     <td class="text-right tabular"><?= fmt_number((float) $r['on_hand'], 1) ?></td>
                     <td class="text-right tabular"><?= fmt_number((float) $r['on_tickets'], 1) ?></td>
