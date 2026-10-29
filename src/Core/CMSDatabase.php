@@ -65,8 +65,14 @@ class CMSDatabase
         $options = [
             \PDO::ATTR_ERRMODE            => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-            \PDO::ATTR_TIMEOUT            => self::QUERY_TIMEOUT_SECONDS,  // sqlsrv connect timeout
         ];
+        if ($driver === 'dblib') {
+            // dblib takes its connect timeout as a PDO attribute. pdo_sqlsrv
+            // does NOT support ATTR_TIMEOUT and refuses the connection with
+            // "IMSSP: An unsupported attribute was designated on the PDO
+            // object" — its connect timeout is the DSN's LoginTimeout.
+            $options[\PDO::ATTR_TIMEOUT] = self::QUERY_TIMEOUT_SECONDS;
+        }
 
         $this->pdo = new \PDO($dsn, $config['user'], $config['password'], $options);
 
