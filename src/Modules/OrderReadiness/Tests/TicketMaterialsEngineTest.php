@@ -68,9 +68,10 @@ $r = TicketMaterialsEngine::compute(
 t_check($r[2001]['status'] === 'short' && abs($r[2001]['shortages'][0]['short'] - 10.0) < 1e-6,
     'negative on-hand counts as zero, not as supply');
 
-t_section('TicketMaterialsEngine: packaging draws bulk from its own batch');
+t_section('TicketMaterialsEngine: a pack is never short its own batch\'s bulk');
 
-// MFPP bulk line covered by the linked MFBA's output, not inventory.
+// The bulk line on an MFPP is what the batch MAKES — never a shortage
+// while the batch is open, whatever is (not) on hand (Matt, 2026-10-29).
 $r = TicketMaterialsEngine::compute(
     [$mfba(3001, 500, '2026-11-01'), $mfpp(3002, 3001, 'BULK-X', 450, '2026-11-08')],
     [
@@ -79,11 +80,12 @@ $r = TicketMaterialsEngine::compute(
     ],
     ['VEC-1' => 200.0]   // no BULK-X on hand at all
 );
-t_check($r[3002]['status'] === 'ok', 'packaging covered by its batch output');
-t_check(abs($r[3002]['from_mfba'] - 450.0) < 1e-6, 'bulk taken from the linked batch');
+t_check($r[3002]['status'] === 'ok', 'pack bulk comes from its batch, not a shortage');
+t_check(abs($r[3002]['from_mfba'] - 450.0) < 1e-6, 'bulk quantity recorded as coming from the batch');
 t_check($r[3002]['mfba_short'] === 0, 'no chain flag when the batch itself is ok');
 
-// Two packs off one batch: output is shared, never double-counted.
+// Even a pack needing more than the batch output is not flagged: the
+// master batch number is the only thing that carries material flags.
 $r = TicketMaterialsEngine::compute(
     [$mfba(3001, 500, '2026-11-01'),
      $mfpp(3002, 3001, 'BULK-X', 300, '2026-11-05'),
@@ -94,9 +96,24 @@ $r = TicketMaterialsEngine::compute(
     ],
     []
 );
-t_check($r[3002]['status'] === 'ok', 'first pack covered by the batch');
-t_check($r[3003]['status'] === 'short' && abs($r[3003]['shortages'][0]['short'] - 100.0) < 1e-6,
-    'second pack short once the batch output runs out (100)');
+t_check($r[3002]['status'] === 'ok' && $r[3003]['status'] === 'ok',
+    'packs on an open batch are never short its bulk');
+
+// But a pack IS short its containers — those are real externals.
+$r = TicketMaterialsEngine::compute(
+    [$mfba(3001, 500, '2026-11-01'), $mfpp(3002, 3001, 'BULK-X', 450, '2026-11-08')],
+    [
+        3002 => [
+            'BULK-X' => ['qty' => 450, 'unit' => 'lb'],
+            '5LBPT'  => ['qty' => 90, 'unit' => 'ea'],
+        ],
+    ],
+    ['5LBPT' => 60.0]
+);
+t_check($r[3002]['status'] === 'short', 'pack short its containers');
+t_check(count($r[3002]['shortages']) === 1 && $r[3002]['shortages'][0]['item_code'] === '5LBPT'
+    && abs($r[3002]['shortages'][0]['short'] - 30.0) < 1e-6,
+    'only the container is listed (short 30 ea), never the bulk');
 
 // Orphan MFPP (no open MFBA): bulk must come from inventory.
 $r = TicketMaterialsEngine::compute(

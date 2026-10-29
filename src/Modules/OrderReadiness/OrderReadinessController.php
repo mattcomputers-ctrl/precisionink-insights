@@ -37,7 +37,7 @@ class OrderReadinessController
             'pageTitle' => 'Order Readiness',
             'counts'    => $counts,
             'sug'       => $sug,
-            'ticketsShortMaterials' => count(array_filter($this->ticketReadiness(), fn($r) => $r['status'] === 'short')),
+            'ticketsShortMaterials' => $this->shortBatchCount(),
             'asOf'      => SyncSettings::lastSuccessAt(),
         ], 'order_readiness');
     }
@@ -484,16 +484,12 @@ class OrderReadinessController
             $r = $readiness[(int) $t['ordr']] ?? null;
             $materials = '';
             if ($r !== null) {
-                if ($r['status'] === 'short') {
-                    $materials = 'Short: ' . implode('; ', array_map(
+                $materials = $r['status'] === 'short'
+                    ? 'Short: ' . implode('; ', array_map(
                         fn($s) => $s['item_code'] . ' -' . rtrim(rtrim(number_format((float) $s['short'], 2, '.', ''), '0'), '.') . ' ' . $s['unit'],
                         $r['shortages']
-                    ));
-                } elseif ($r['mfba_short'] === 1) {
-                    $materials = 'Batch short materials';
-                } else {
-                    $materials = 'On hand';
-                }
+                    ))
+                    : 'On hand';
             }
             $rows[] = [
                 $t['batch_ordr'] ?? $t['ordr'], $t['context'], $t['status'], $t['item_code'], $t['description'],
@@ -504,6 +500,21 @@ class OrderReadinessController
     }
 
     /* ── Shared helpers ────────────────────────────────────────── */
+
+    /** How many MASTER BATCHES are short materials (Matt: count batches, not rows). */
+    private function shortBatchCount(): int
+    {
+        try {
+            return (int) (Database::getInstance()->fetch(
+                "SELECT COUNT(DISTINCT COALESCE(t.batch_ordr, t.ordr)) AS n
+                 FROM or_ticket_readiness r
+                 JOIN or_tickets t ON t.ordr = r.ordr
+                 WHERE r.status = 'short'"
+            )['n'] ?? 0);
+        } catch (\Throwable $e) {
+            return 0;   // table not there yet (pre-migration page view)
+        }
+    }
 
     /**
      * Materials check per ticket, keyed by ticket ordr, shortages decoded.

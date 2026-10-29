@@ -12,10 +12,12 @@ namespace PII\Modules\OrderReadiness;
  * inventory in due-date order (earliest DateRequired first, then ticket
  * number), and a pound of material never counts toward two tickets.
  *
- * An MFPP's one material line is the bulk it packages; that bulk comes
- * from its linked MFBA batch first (that is what the batch was cut for),
- * and only the remainder competes for on-hand stock. An MFBA whose own
- * raw materials are short poisons its MFPPs too (mfba_short).
+ * An MFPP's bulk line is NEVER a shortage while its MFBA is open: the
+ * batch exists precisely to make that bulk, so "short because the bulk
+ * isn't made yet" is noise (Matt, 2026-10-29 — only the master batch
+ * number gets flagged). A pack's real externals are its containers.
+ * Orphan packs (batch already gone) still check bulk against stock.
+ * An MFBA whose own raw materials are short poisons its MFPPs (mfba_short).
  *
  * Input:
  *   tickets:   [['ordr','context','batch_ordr','bulk_code','date_required','qty']]
@@ -37,11 +39,11 @@ class TicketMaterialsEngine
             $invPool[$code] = max(0.0, (float) $qty);
         }
 
-        // Each open MFBA's output pool: the bulk its MFPPs may draw on.
-        $mfbaOut = [];
+        // Open MFBAs, so a pack knows whether its batch still exists.
+        $openMfba = [];
         foreach ($tickets as $t) {
             if ($t['context'] === 'MFBA') {
-                $mfbaOut[(int) $t['ordr']] = max(0.0, (float) $t['qty']);
+                $openMfba[(int) $t['ordr']] = true;
             }
         }
 
@@ -62,15 +64,13 @@ class TicketMaterialsEngine
                 }
                 $covered = 0.0;
 
-                // MFPP bulk line: its own batch's output first.
-                if ($t['context'] === 'MFPP' && $code === ($t['bulk_code'] ?? null)) {
-                    $batch = (int) ($t['batch_ordr'] ?? 0);
-                    if ($batch !== 0 && ($mfbaOut[$batch] ?? 0.0) > self::EPS) {
-                        $take = min($need, $mfbaOut[$batch]);
-                        $mfbaOut[$batch] -= $take;
-                        $covered += $take;
-                        $fromMfba += $take;
-                    }
+                // MFPP bulk line with its batch still open: the batch makes
+                // this bulk, so it is never a shortage here — the batch's own
+                // raw materials are what get checked (Matt, 2026-10-29).
+                if ($t['context'] === 'MFPP' && $code === ($t['bulk_code'] ?? null)
+                    && isset($openMfba[(int) ($t['batch_ordr'] ?? 0)])) {
+                    $fromMfba += $need;
+                    continue;
                 }
 
                 if ($need - $covered > self::EPS && ($invPool[$code] ?? 0.0) > self::EPS) {

@@ -160,6 +160,13 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     whose MFBA is itself short is flagged (`mfba_short`). This inventory
     pool is independent of the sales-order CoverageEngine pool — material
     (SUNDRY) items are never on SH orders, so there is no double count.
+    A pack's BULK line is never a shortage while its batch is open — the
+    batch exists to make that bulk, so "pack short because the bulk isn't
+    made yet" is noise (Matt, 2026-10-29). Flags live on the master batch
+    number: raw materials flag the MFBA, containers flag the pack row
+    (shown under the same batch number), and all counts (tickets subtitle,
+    overview tile) count distinct master batches. Orphan packs whose batch
+    is gone still check bulk against on-hand stock.
     On open tickets `QtyUsed` is always 0/NULL (verified live): materials
     are issued at completion, so remaining = `QtyReqd`. Surfaced on the
     Batch tickets page (Materials column + export), the orders list

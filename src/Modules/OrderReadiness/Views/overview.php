@@ -26,8 +26,8 @@ require __DIR__ . '/_subnav.php';
     <?php if (user_can('orders.tickets_view') && $ticketsShortMaterials > 0): ?>
         <a href="/orders/tickets" class="tile">
             <span class="tile-icon">🧪</span>
-            <div class="tile-name" style="color:var(--danger);"><?= (int) $ticketsShortMaterials ?> batch ticket<?= $ticketsShortMaterials === 1 ? '' : 's' ?> short materials</div>
-            <div class="tile-desc">Cut, but the raw materials to make them aren't all on hand.</div>
+            <div class="tile-name" style="color:var(--danger);"><?= (int) $ticketsShortMaterials ?> batch<?= $ticketsShortMaterials === 1 ? '' : 'es' ?> short materials</div>
+            <div class="tile-desc">Cut, but the materials to make them aren't all on hand.</div>
         </a>
     <?php endif; ?>
     <a href="/orders/list?tab=discontinued" class="tile">

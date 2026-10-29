@@ -29,9 +29,19 @@ $pill = function (array $t) use ($today): string {
             <div class="card-subtitle">
                 MFBA makes bulk ink; MFPP packages it. Inventory only moves when a ticket finishes
                 (BAT/CMP) — until then these are future supply.
-                <?php $nShort = count(array_filter($readiness, fn($r) => $r['status'] === 'short')); ?>
+                <?php
+                // Count MASTER BATCH numbers, not rows (Matt, 2026-10-29).
+                $shortBatches = [];
+                foreach ($tickets as $tt) {
+                    $rr = $readiness[(int) $tt['ordr']] ?? null;
+                    if ($rr !== null && $rr['status'] === 'short') {
+                        $shortBatches[(int) ($tt['batch_ordr'] ?? $tt['ordr'])] = true;
+                    }
+                }
+                $nShort = count($shortBatches);
+                ?>
                 <?php if ($nShort > 0): ?>
-                    <strong class="text-danger"><?= $nShort ?> ticket<?= $nShort === 1 ? ' is' : 's are' ?> short the materials needed to make them.</strong>
+                    <strong class="text-danger"><?= $nShort ?> batch<?= $nShort === 1 ? ' is' : 'es are' ?> short the materials needed to make <?= $nShort === 1 ? 'it' : 'them' ?>.</strong>
                 <?php endif; ?>
             </div>
         </div>
@@ -75,10 +85,8 @@ $pill = function (array $t) use ($today): string {
                                     <?= e($s['item_code']) ?> <span class="text-danger">−<?= fmt_number((float) $s['short'], 1) ?> <?= e($s['unit']) ?></span>
                                 </div>
                             <?php endforeach; ?>
-                        <?php elseif (!empty($r['mfba_short'])): ?>
-                            <span class="pill pill-warn" title="This packaging ticket's batch is short raw materials — see batch <?= (int) ($t['batch_ordr'] ?? 0) ?> above">⚠ Batch short materials</span>
                         <?php else: ?>
-                            <span class="pill pill-active" title="<?= !empty($r['from_mfba']) ? 'Bulk comes from batch ' . (int) ($t['batch_ordr'] ?? 0) . '; everything else is' : 'All materials are' ?> on hand">✔ On hand</span>
+                            <span class="pill pill-active" title="<?= !empty($r['from_mfba']) ? 'Bulk comes from this batch; everything else is' : 'All materials are' ?> on hand">✔ On hand</span>
                         <?php endif; ?>
                     </td>
                     <td class="nowrap"><?= e($t['item_code']) ?><?= $t['bulk_code'] ? '<div class="tag" title="Bulk consumed">' . e($t['bulk_code']) . '</div>' : '' ?></td>
