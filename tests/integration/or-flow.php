@@ -252,12 +252,12 @@ $pdo->prepare("INSERT INTO users (username,password_hash,display_name,is_active)
 $pdo->prepare("INSERT INTO user_group_members VALUES (?,?)")
     ->execute([(int) $pdo->lastInsertId(), $bgid]);
 
-$pdo->exec("INSERT INTO nto_items (item_code, description, unit, qty_needed, on_po, first_needed, src_ticket, src_order, has_recipe, vendor, vendor_code, vendor_count, refs, via) VALUES
-    ('SOC0403', 'TEST MONOMER', 'lb', 120.5, 50, '2026-11-10', 1, 0, 0, 'AAL CHEM', 'EM2387-TF', 2,
+$pdo->exec("INSERT INTO nto_items (item_code, description, unit, qty_needed, on_po, first_needed, src_ticket, src_order, has_recipe, preferred_vendor, vendor, vendor_code, vendor_count, refs, via) VALUES
+    ('SOC0403', 'TEST MONOMER', 'lb', 120.5, 50, '2026-11-10', 1, 0, 0, 'AAL CHEM', 'AAL CHEM', 'EM2387-TF', 2,
      '[{\"ref\":\"batch 7000 (A-50)\",\"src\":\"ticket\"}]', '[]'),
-    ('PGR1000', 'TEST PIGMENT', 'lb', 40, 0, '2026-11-05', 0, 1, 1, 'SUN CHEMICAL', 'PGR-X', 1,
+    ('PGR1000', 'TEST PIGMENT', 'lb', 40, 0, '2026-11-05', 0, 1, 1, 'OTHER PREF CO', 'SUN CHEMICAL', 'PGR-X', 1,
      '[{\"ref\":\"order 9001 (CUST-A)\",\"src\":\"order\"}]', '[\"E1000\"]'),
-    ('NOVEND', 'TEST NEVER BOUGHT', 'lb', 5, 0, NULL, 1, 0, 0, NULL, NULL, 0,
+    ('NOVEND', 'TEST NEVER BOUGHT', 'lb', 5, 0, NULL, 1, 0, 0, NULL, NULL, NULL, 0,
      '[{\"ref\":\"batch 7000 (A-50)\",\"src\":\"ticket\"}]', '[]')");
 
 $buyer = new Http($BASE);
@@ -267,16 +267,23 @@ ok($page['status'] === 200 && str_contains($page['body'], 'SOC0403') && str_cont
     'need-to-order lists the buy list');
 ok(str_contains($page['body'], 'AAL CHEM') && str_contains($page['body'], 'EM2387-TF'),
     'vendor and their item code shown');
+ok(str_contains($page['body'], 'Preferred vendor') && str_contains($page['body'], 'OTHER PREF CO'),
+    'preferred vendor column shown');
 ok(str_contains($page['body'], 'batch 7000') && str_contains($page['body'], 'order 9001'),
     'root references shown (ticket + order)');
 ok(str_contains($page['body'], 'to make E1000'), 'made-via chain shown');
 ok(strpos($page['body'], 'SOC0403') < strpos($page['body'], 'PGR1000'),
     'open-ticket needs come before new-batch needs even when due later');
 
-$page = $buyer->get('/need-to-order?group=vendor');
-ok(str_contains($page['body'], 'No vendor on file'), 'never-purchased group shown last');
+$page = $buyer->get('/need-to-order?group=last');
+ok(str_contains($page['body'], 'Never purchased'), 'group by LAST vendor: never-purchased group present');
 ok(strpos($page['body'], 'AAL CHEM') < strpos($page['body'], 'SUN CHEMICAL'),
-    'vendor groups are alphabetical');
+    'last-vendor groups are alphabetical');
+
+$page = $buyer->get('/need-to-order?group=preferred');
+ok(str_contains($page['body'], 'No preferred vendor set'), 'group by PREFERRED vendor: unset group present');
+ok(strpos($page['body'], 'AAL CHEM') < strpos($page['body'], 'OTHER PREF CO'),
+    'preferred-vendor groups are alphabetical');
 
 $page = $buyer->get('/need-to-order?q=PGR');
 ok(str_contains($page['body'], 'PGR1000') && !str_contains($page['body'], 'SOC0403'),

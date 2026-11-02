@@ -1,12 +1,13 @@
 <?php
 /**
- * Need to Order — the buy list. Flat (priority order) or grouped by vendor.
- * @var array $rows  @var array $groups  @var bool $byVendor
+ * Need to Order — the buy list. Flat (priority order) or grouped by
+ * preferred vendor / last-purchased-from vendor (Matt, 2026-11-02).
+ * @var array $rows  @var array $groups  @var string $groupBy  ''|'preferred'|'last'
  * @var string $search  @var ?string $asOf
  */
 $today = date('Y-m-d');
 $qs = fn(array $extra) => '/need-to-order?' . http_build_query(array_filter(
-    ['q' => $search, 'group' => $byVendor ? 'vendor' : ''] + $extra, fn($v) => $v !== ''));
+    ['q' => $search, 'group' => $groupBy] + $extra, fn($v) => $v !== ''));
 
 $renderRows = function (array $list) use ($today): void {
     foreach ($list as $r):
@@ -19,6 +20,13 @@ $renderRows = function (array $list) use ($today): void {
                 <?php endif; ?>
             </td>
             <td><?= e($r['description']) ?></td>
+            <td class="nowrap">
+                <?php if (!empty($r['preferred_vendor'])): ?>
+                    <?= e($r['preferred_vendor']) ?>
+                <?php else: ?>
+                    <span class="text-muted" title="No preferred vendor set on the item in CMS">—</span>
+                <?php endif; ?>
+            </td>
             <td class="nowrap">
                 <?php if ($r['vendor'] !== null && $r['vendor'] !== ''): ?>
                     <?= e($r['vendor']) ?>
@@ -49,6 +57,10 @@ $renderRows = function (array $list) use ($today): void {
         </tr>
     <?php endforeach;
 };
+$thead = '<tr>'
+    . '<th>Material</th><th>Description</th><th>Preferred vendor</th><th>Last purchased from</th>'
+    . '<th class="text-right">To order</th><th class="text-right">On open POs</th>'
+    . '<th>First needed</th><th>Why</th><th>Needed by</th></tr>';
 ?>
 <div class="card">
     <div class="toolbar">
@@ -56,21 +68,22 @@ $renderRows = function (array $list) use ($today): void {
             <h2 class="card-title">Need to Order</h2>
             <div class="card-subtitle">
                 Buy this and every open ticket — and every batch still to be cut for open orders — can run.
-                Quantities are already netted against stock, open tickets and nothing counted twice.
+                Quantities are already netted against stock and open tickets; nothing is counted twice.
                 <?= $asOf !== null ? 'Data as of ' . e(fmt_date($asOf, 'M j, g:i A')) . '.' : '' ?>
             </div>
         </div>
         <form method="GET" action="/need-to-order" class="flex gap-1">
-            <?php if ($byVendor): ?><input type="hidden" name="group" value="vendor"><?php endif; ?>
+            <?php if ($groupBy !== ''): ?><input type="hidden" name="group" value="<?= e($groupBy) ?>"><?php endif; ?>
             <input type="text" name="q" value="<?= e($search) ?>" placeholder="Material, vendor or vendor code…" style="min-width:220px;">
             <button type="submit" class="btn btn-sm">Search</button>
         </form>
         <div class="flex gap-1 items-center">
-            <a href="<?= e($qs(['group' => $byVendor ? '' : 'vendor'])) ?>" class="btn btn-sm <?= $byVendor ? 'btn-primary' : '' ?>">
-                <?= $byVendor ? '✔ Grouped by vendor' : 'Group by vendor' ?>
-            </a>
+            <a href="<?= e($qs(['group' => $groupBy === 'preferred' ? '' : 'preferred'])) ?>"
+               class="btn btn-sm <?= $groupBy === 'preferred' ? 'btn-primary' : '' ?>"><?= $groupBy === 'preferred' ? '✔ ' : '' ?>By preferred vendor</a>
+            <a href="<?= e($qs(['group' => $groupBy === 'last' ? '' : 'last'])) ?>"
+               class="btn btn-sm <?= $groupBy === 'last' ? 'btn-primary' : '' ?>"><?= $groupBy === 'last' ? '✔ ' : '' ?>By last vendor</a>
             <?php if (user_can('export')): ?>
-                <a href="<?= e('/need-to-order/export?' . http_build_query(array_filter(['q' => $search, 'group' => $byVendor ? 'vendor' : '']))) ?>"
+                <a href="<?= e('/need-to-order/export?' . http_build_query(array_filter(['q' => $search, 'group' => $groupBy]))) ?>"
                    class="btn btn-sm" data-export="1">⬇ Excel</a>
             <?php endif; ?>
             <?= sync_now_button() ?>
@@ -84,21 +97,17 @@ $renderRows = function (array $list) use ($today): void {
                 ? 'Nothing on the buy list matches your search.'
                 : ($asOf === null ? 'No data yet — run a sync.' : 'Nothing to order — every open ticket and every pending batch is covered.') ?>
         </div>
-    <?php elseif ($byVendor): ?>
+    <?php elseif ($groupBy !== ''): ?>
         <?php foreach ($groups as $vendor => $list): ?>
             <h3 style="margin:1rem 0 0.4rem;">
-                <?= $vendor === '' ? '— No vendor on file' : e($vendor) ?>
+                <?= $vendor === ''
+                    ? ($groupBy === 'preferred' ? '— No preferred vendor set' : '— Never purchased')
+                    : e($vendor) ?>
                 <span class="text-muted" style="font-weight:normal;font-size:0.85rem;"><?= count($list) ?> item<?= count($list) === 1 ? '' : 's' ?></span>
             </h3>
             <div class="table-scroll">
                 <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Material</th><th>Description</th><th>Vendor</th>
-                            <th class="text-right">To order</th><th class="text-right">On open POs</th>
-                            <th>First needed</th><th>Why</th><th>Needed by</th>
-                        </tr>
-                    </thead>
+                    <thead><?= $thead ?></thead>
                     <tbody><?php $renderRows($list); ?></tbody>
                 </table>
             </div>
@@ -106,13 +115,7 @@ $renderRows = function (array $list) use ($today): void {
     <?php else: ?>
         <div class="table-scroll">
             <table class="table">
-                <thead>
-                    <tr>
-                        <th>Material</th><th>Description</th><th>Vendor</th>
-                        <th class="text-right">To order</th><th class="text-right">On open POs</th>
-                        <th>First needed</th><th>Why</th><th>Needed by</th>
-                    </tr>
-                </thead>
+                <thead><?= $thead ?></thead>
                 <tbody><?php $renderRows($rows); ?></tbody>
             </table>
         </div>

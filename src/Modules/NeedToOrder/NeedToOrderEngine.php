@@ -12,11 +12,11 @@ namespace PII\Modules\NeedToOrder;
  * Demands explode level by level, MRP-style:
  *   - net each item against remaining stock, then against net open-ticket
  *     output (a batch already cut supplies its bulk);
- *   - an item we BUY (purchase history) — or that has no recipe — is a
- *     leaf: it goes on the buy list;
- *   - an item we MAKE (recipe, never purchased) becomes a batch of its
- *     own: its remaining need is rounded up to the standard batch size
- *     (when known) and exploded into its ingredients.
+ *   - an item with NO active recipe is a leaf: it goes on the buy list;
+ *   - an item WITH an active recipe is MADE, never bought (Matt,
+ *     2026-11-02: such items must not appear on the list): its remaining
+ *     need is rounded up to the standard batch size (when known) and
+ *     exploded into its ingredients.
  * A pound of stock or ticket output never satisfies two demands, and the
  * root reference (which batch / which order) rides along so the buyer
  * can see WHY each material is on the list.
@@ -26,8 +26,7 @@ namespace PII\Modules\NeedToOrder;
  *   stock:      [item => qty]   leftover usable AFTER open-ticket claims
  *   incoming:   [item => qty]   net open-ticket output per item (>0 only)
  *   recipes:    [item => [['item' => ingredient, 'qty_per' => float], …]]
- *               (qty_per is per 1 unit of the parent)
- *   buyable:    [item => true]  items with any purchase history
+ *               (qty_per is per 1 unit of the parent; presence = active recipe)
  *   batchSizes: [item => standard batch size]
  *
  * Output: [item => ['qty','due','srcs' => ['ticket'=>bool,'order'=>bool],
@@ -43,7 +42,6 @@ class NeedToOrderEngine
         array $stock,
         array $incoming,
         array $recipes,
-        array $buyable,
         array $batchSizes = []
     ): array {
         $pool = [];
@@ -84,12 +82,12 @@ class NeedToOrderEngine
                     continue;
                 }
 
-                if (isset($buyable[$code]) || empty($recipes[$code])) {
+                if (empty($recipes[$code])) {
                     self::merge($out, $code, $need, $d['due'], $d['refs'], $d['via']);
                     continue;
                 }
 
-                // Made in-house: this is a batch to cut — explode it.
+                // Has an active recipe → it is MADE, never bought: explode.
                 $gross = $need;
                 if (($batchSizes[$code] ?? 0.0) > self::EPS) {
                     $gross = ceil($need / $batchSizes[$code] - self::EPS) * $batchSizes[$code];
@@ -103,6 +101,13 @@ class NeedToOrderEngine
                 }
             }
             $frontier = $next;
+        }
+
+        // Safety net: a recipe chain deeper than MAX_DEPTH surfaces whatever
+        // is left rather than silently dropping demand (never seen in real
+        // data — ink BOMs are 3–4 levels).
+        foreach ($frontier as $code => $d) {
+            self::merge($out, $code, $d['qty'], $d['due'], $d['refs'], $d['via']);
         }
 
         foreach ($out as &$o) {

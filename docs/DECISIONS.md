@@ -199,15 +199,18 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     + sales-order coverage shortfalls (the batches still to be cut;
     discontinued and unit-mismatch lines excluded). NeedToOrderEngine
     explodes them MRP-style: net against leftover stock (after ticket
-    claims) then net open-ticket output; an item with ANY purchase history
-    is a BUY leaf (badge "can be made" when it also has a recipe); an item
-    never purchased but with a recipe is MADE — its remaining need rounds
-    up to the standard batch size and explodes into its recipe ingredients
-    (fractions per lb, max depth 6, self-reference guarded); never-bought
-    recipe-less items surface with no vendor. Root references (batch N /
-    order N) ride through the explosion so the buyer sees why. Vendor =
-    most recent PO's vendor + TheirCode (vendor count shown); group-by-
-    vendor toggle, never-purchased group last. Priority: open-ticket needs
+    claims) then net open-ticket output; an item with an ACTIVE recipe is
+    MADE, never bought, and must never appear on the list (Matt,
+    2026-11-02) — its remaining need rounds up to the standard batch size
+    and explodes into its recipe ingredients (fractions per lb, max depth
+    6 with a surface-the-remainder safety net, self-reference guarded);
+    only recipe-less items are buy leaves, and never-bought recipe-less
+    items surface with no vendor. Root references (batch N /
+    order N) ride through the explosion so the buyer sees why. TWO vendor
+    columns (Matt, 2026-11-02): the PREFERRED vendor (Item.Supplier →
+    Entities, set on the item in CMS) and the vendor LAST PURCHASED from
+    (most recent PO + its TheirCode; vendor count shown) — groupable by
+    either, unset/never-purchased group last. Priority: open-ticket needs
     first, then first-needed date. Permission purchasing.view, no grants
     seeded. The sync job consumes OrderReadiness's same-run hand-off via
     SyncContext::share, so NeedToOrder registers right after it in App.

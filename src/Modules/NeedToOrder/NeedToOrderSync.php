@@ -41,10 +41,9 @@ class NeedToOrderSync
             return ['rows' => 0];
         }
 
-        // Walk the recipe tree level by level: for each frontier of item
-        // codes, learn (a) purchase history → buyable, (b) the recipe of
-        // anything we make in-house, then descend into those ingredients.
-        $buyable = [];     // item => ['vendor','vendor_code','vendor_count']
+        // Walk the recipe tree level by level: anything with an ACTIVE
+        // recipe is made, never bought (Matt, 2026-11-02), so every recipe
+        // found descends into its ingredients.
         $recipes = [];     // item => [['item','qty_per'], …]
         $known   = [];     // item => true (already looked up)
         $frontier = array_values(array_unique(array_column($demands, 'item')));
@@ -59,27 +58,6 @@ class NeedToOrderSync
             }
             $in = implode(',', array_fill(0, count($frontier), '?'));
 
-            // Purchase history: most recent vendor first (their code too).
-            foreach ($c->cmsFetchAll('purchase history (level ' . ($depth + 1) . ')', "
-                SELECT pod.ItemCode,
-                       e.EntityName AS Vendor, pod.TheirCode,
-                       CONVERT(VARCHAR(10), o.DateOrdered, 23) AS LastPo,
-                       COUNT(*) OVER (PARTITION BY pod.ItemCode) AS Buys,
-                       ROW_NUMBER() OVER (PARTITION BY pod.ItemCode ORDER BY o.DateOrdered DESC, o.Ordr DESC) AS rn
-                FROM CMS.dbo.PurchaseOrderDetail pod
-                JOIN CMS.dbo.Ordr o ON o.Ordr = pod.Ordr
-                LEFT JOIN CMS.dbo.Entities e ON e.Entity = o.Entity
-                WHERE pod.ItemCode IN ({$in})", $frontier) as $r) {
-                if ((int) $r['rn'] !== 1) {
-                    continue;
-                }
-                $buyable[$r['ItemCode']] = [
-                    'vendor'       => $r['Vendor'] !== null && $r['Vendor'] !== '' ? (string) $r['Vendor'] : null,
-                    'vendor_code'  => $r['TheirCode'] !== null && $r['TheirCode'] !== '' ? (string) $r['TheirCode'] : null,
-                ];
-            }
-
-            // Recipes for everything on this level (made items descend).
             $next = [];
             foreach ($c->cmsFetchAll('recipes (level ' . ($depth + 1) . ')', "
                 SELECT i.ItemCode AS Parent, ing.ItemCode AS Ing, rd.QtyReqd
@@ -88,30 +66,46 @@ class NeedToOrderSync
                 JOIN CMS.dbo.Item ing ON ing.Item = rd.Item
                 WHERE i.ItemCode IN ({$in})", $frontier) as $r) {
                 $recipes[$r['Parent']][] = ['item' => (string) $r['Ing'], 'qty_per' => (float) $r['QtyReqd']];
-                if (!isset($buyable[$r['Parent']])) {
-                    $next[] = (string) $r['Ing'];    // we'd make it → need its ingredients' info
-                }
+                $next[] = (string) $r['Ing'];
             }
             $frontier = array_values(array_unique($next));
         }
 
-        $needs = NeedToOrderEngine::compute(
-            $demands, $stock, $incoming, $recipes,
-            array_map(fn($v) => true, $buyable), $batchSizes
-        );
+        $needs = NeedToOrderEngine::compute($demands, $stock, $incoming, $recipes, $batchSizes);
         if ($needs === []) {
             $c->queueSwap('nto_items', 0);
             return ['rows' => 0];
         }
 
-        // Names, units, distinct-vendor counts and open-PO qty for the list.
+        // Last-purchased vendor (+ their code) for the final buy list.
         $codes = array_keys($needs);
         $in = implode(',', array_fill(0, count($codes), '?'));
+        $lastVendor = [];
+        foreach ($c->cmsFetchAll('last-purchased vendors', "
+            SELECT pod.ItemCode, e.EntityName AS Vendor, pod.TheirCode,
+                   ROW_NUMBER() OVER (PARTITION BY pod.ItemCode ORDER BY o.DateOrdered DESC, o.Ordr DESC) AS rn
+            FROM CMS.dbo.PurchaseOrderDetail pod
+            JOIN CMS.dbo.Ordr o ON o.Ordr = pod.Ordr
+            LEFT JOIN CMS.dbo.Entities e ON e.Entity = o.Entity
+            WHERE pod.ItemCode IN ({$in})", $codes) as $r) {
+            if ((int) $r['rn'] !== 1) {
+                continue;
+            }
+            $lastVendor[$r['ItemCode']] = [
+                'vendor'      => trim((string) ($r['Vendor'] ?? '')) !== '' ? trim((string) $r['Vendor']) : null,
+                'vendor_code' => trim((string) ($r['TheirCode'] ?? '')) !== '' ? trim((string) $r['TheirCode']) : null,
+            ];
+        }
+
+        // Names, units, preferred vendor, distinct-vendor counts, open-PO qty.
         $meta = [];
         foreach ($c->cmsFetchAll('item names & units', "
             SELECT i.ItemCode, i.Description, i.Unit,
-                   CASE WHEN i.CostingRecipe IS NULL THEN 0 ELSE 1 END AS HasRecipe
-            FROM CMS.dbo.Item i WHERE i.ItemCode IN ({$in})", $codes) as $r) {
+                   CASE WHEN i.CostingRecipe IS NULL THEN 0 ELSE 1 END AS HasRecipe,
+                   pe.EntityName AS PreferredVendor
+            FROM CMS.dbo.Item i
+            LEFT JOIN CMS.dbo.Entities pe ON pe.Entity = i.Supplier
+            WHERE i.ItemCode IN ({$in})", $codes) as $r) {
             $meta[$r['ItemCode']] = $r;
         }
         $vendorCounts = [];
@@ -147,8 +141,10 @@ class NeedToOrderSync
                 'src_ticket'   => $n['srcs']['ticket'] ? 1 : 0,
                 'src_order'    => $n['srcs']['order'] ? 1 : 0,
                 'has_recipe'   => (int) ($meta[$code]['HasRecipe'] ?? 0),
-                'vendor'       => $buyable[$code]['vendor'] ?? null,
-                'vendor_code'  => $buyable[$code]['vendor_code'] ?? null,
+                'preferred_vendor' => isset($meta[$code]['PreferredVendor']) && trim((string) $meta[$code]['PreferredVendor']) !== ''
+                    ? trim((string) $meta[$code]['PreferredVendor']) : null,
+                'vendor'       => $lastVendor[$code]['vendor'] ?? null,
+                'vendor_code'  => $lastVendor[$code]['vendor_code'] ?? null,
                 'vendor_count' => $vendorCounts[$code] ?? 0,
                 'refs'         => json_encode($n['refs'], JSON_UNESCAPED_SLASHES),
                 'via'          => json_encode($n['via'], JSON_UNESCAPED_SLASHES),
