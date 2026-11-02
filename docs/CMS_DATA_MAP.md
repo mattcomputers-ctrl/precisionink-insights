@@ -124,4 +124,11 @@ Eight set-based queries, each filtered to open/current rows only:
    the linked MFBA makes (fallback: the UI item with a CostingRecipe).
 8. Last-made dates for suggestion items.
 
+The Need to Order job adds: recipe explosion level by level
+(`RecipeDetail` UI rows via `Item.CostingRecipe` — `QtyReqd` is the
+fraction per 1 unit of the parent, UI fractions sum to 1.0 on bulk,
+pack recipes carry bulk @1.0/lb + containers per lb), purchase history
+(`PurchaseOrderDetail` by ItemCode: ANY history = we buy it; most recent
+PO's vendor + `TheirCode` shown), and open-PO quantities per material.
+
 All each a few hundred rows; well under the 60 s target.

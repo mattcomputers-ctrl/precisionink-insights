@@ -36,7 +36,11 @@ class TicketMaterialsEngine
 {
     private const EPS = 1e-6;
 
-    public static function compute(array $tickets, array $materials, array $inventory): array
+    /**
+     * @param ?array $leftover Receives the inventory pool REMAINING after
+     *                         every open ticket's claims (for Need to Order).
+     */
+    public static function compute(array $tickets, array $materials, array $inventory, ?array &$leftover = null): array
     {
         $invPool = [];
         foreach ($inventory as $code => $qty) {
@@ -105,6 +109,8 @@ class TicketMaterialsEngine
                 'mfba_short' => 0,
             ];
         }
+
+        $leftover = $invPool;
 
         // Chain: a packaging ticket whose batch can't be mixed is in trouble
         // even when its own bulk line looks covered by that batch's output.

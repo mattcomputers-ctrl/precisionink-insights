@@ -19,6 +19,8 @@ class SyncContext
 {
     /** @var array<string,int> table => minimum acceptable row count */
     private array $pendingSwaps = [];
+    /** @var array<string,mixed> cross-job hand-off within ONE run (see share()) */
+    private array $shared = [];
     /** @var list<array{label:string,seconds:float}> */
     private array $queryLog = [];
     /** @var list<string> */
@@ -134,6 +136,21 @@ class SyncContext
             }
         }
         $this->pendingSwaps = [];
+    }
+
+    /**
+     * Hand a computed value to a LATER job in the same run (jobs execute in
+     * module registration order; snapshot tables only swap at the very end,
+     * so a later job can't read an earlier job's results from the DB).
+     */
+    public function share(string $key, mixed $value): void
+    {
+        $this->shared[$key] = $value;
+    }
+
+    public function shared(string $key, mixed $default = null): mixed
+    {
+        return $this->shared[$key] ?? $default;
     }
 
     public function queryLog(): array

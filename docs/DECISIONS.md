@@ -194,6 +194,23 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     Excel export follows the same one-row-per-batch shape, packaging
     joined into one cell. Covering orders aggregate across the group.
 
+44. **Need to Order module (Matt, 2026-11-02):** the buy list for creating
+    POs. Demands = open-ticket material shortages (TicketMaterialsEngine)
+    + sales-order coverage shortfalls (the batches still to be cut;
+    discontinued and unit-mismatch lines excluded). NeedToOrderEngine
+    explodes them MRP-style: net against leftover stock (after ticket
+    claims) then net open-ticket output; an item with ANY purchase history
+    is a BUY leaf (badge "can be made" when it also has a recipe); an item
+    never purchased but with a recipe is MADE — its remaining need rounds
+    up to the standard batch size and explodes into its recipe ingredients
+    (fractions per lb, max depth 6, self-reference guarded); never-bought
+    recipe-less items surface with no vendor. Root references (batch N /
+    order N) ride through the explosion so the buyer sees why. Vendor =
+    most recent PO's vendor + TheirCode (vendor count shown); group-by-
+    vendor toggle, never-purchased group last. Priority: open-ticket needs
+    first, then first-needed date. Permission purchasing.view, no grants
+    seeded. The sync job consumes OrderReadiness's same-run hand-off via
+    SyncContext::share, so NeedToOrder registers right after it in App.
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of

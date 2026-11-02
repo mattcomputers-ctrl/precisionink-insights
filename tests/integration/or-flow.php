@@ -64,7 +64,7 @@ foreach (['orf_prod' => 'Production', 'orf_ship' => 'Shipping'] as $u => $g) {
 foreach (['or_items','or_inventory','or_orders','or_order_lines','or_tickets',
           'or_ticket_links','or_ticket_materials','or_ticket_readiness',
           'or_coverage_results','or_production_suggestions',
-          'or_order_priority','or_order_notes','or_suggestion_marks'] as $t) {
+          'or_order_priority','or_order_notes','or_suggestion_marks','nto_items'] as $t) {
     $pdo->exec("DELETE FROM {$t}");
 }
 $pdo->exec("INSERT INTO or_items (item_code, description, unit, is_pack, has_recipe, recipe_number, minimum_stock, is_discontinued) VALUES
@@ -238,6 +238,57 @@ $pdo->exec("DELETE FROM or_orders WHERE ordr = 9001");
 $page = $ship->get('/orders/notes?q=amended');
 ok(str_contains($page['body'], 'hold shipment'), 'note still searchable after the order closed');
 
+/* ── Need to Order (Matt, 2026-11-02) ───────────────────────────── */
+echo "== need to order\n";
+$pdo->exec("DELETE FROM users WHERE username = 'orf_buyer'");
+$pdo->exec("DELETE FROM permission_groups WHERE name = 'OrfBuyers'");
+$pdo->exec("INSERT INTO permission_groups (name, description, is_admin, priority) VALUES ('OrfBuyers', 'nto test', 0, 70)");
+$bgid = (int) $pdo->lastInsertId();
+foreach (['purchasing.view', 'export'] as $perm) {
+    $pdo->prepare("INSERT INTO group_permission_grants VALUES (?,?)")->execute([$bgid, $perm]);
+}
+$pdo->prepare("INSERT INTO users (username,password_hash,display_name,is_active) VALUES ('orf_buyer',?,?,1)")
+    ->execute([$hash, 'orf_buyer']);
+$pdo->prepare("INSERT INTO user_group_members VALUES (?,?)")
+    ->execute([(int) $pdo->lastInsertId(), $bgid]);
+
+$pdo->exec("INSERT INTO nto_items (item_code, description, unit, qty_needed, on_po, first_needed, src_ticket, src_order, has_recipe, vendor, vendor_code, vendor_count, refs, via) VALUES
+    ('SOC0403', 'TEST MONOMER', 'lb', 120.5, 50, '2026-11-10', 1, 0, 0, 'AAL CHEM', 'EM2387-TF', 2,
+     '[{\"ref\":\"batch 7000 (A-50)\",\"src\":\"ticket\"}]', '[]'),
+    ('PGR1000', 'TEST PIGMENT', 'lb', 40, 0, '2026-11-05', 0, 1, 1, 'SUN CHEMICAL', 'PGR-X', 1,
+     '[{\"ref\":\"order 9001 (CUST-A)\",\"src\":\"order\"}]', '[\"E1000\"]'),
+    ('NOVEND', 'TEST NEVER BOUGHT', 'lb', 5, 0, NULL, 1, 0, 0, NULL, NULL, 0,
+     '[{\"ref\":\"batch 7000 (A-50)\",\"src\":\"ticket\"}]', '[]')");
+
+$buyer = new Http($BASE);
+$buyer->login('orf_buyer', 'OrFlow123!');
+$page = $buyer->get('/need-to-order');
+ok($page['status'] === 200 && str_contains($page['body'], 'SOC0403') && str_contains($page['body'], 'PGR1000'),
+    'need-to-order lists the buy list');
+ok(str_contains($page['body'], 'AAL CHEM') && str_contains($page['body'], 'EM2387-TF'),
+    'vendor and their item code shown');
+ok(str_contains($page['body'], 'batch 7000') && str_contains($page['body'], 'order 9001'),
+    'root references shown (ticket + order)');
+ok(str_contains($page['body'], 'to make E1000'), 'made-via chain shown');
+ok(strpos($page['body'], 'SOC0403') < strpos($page['body'], 'PGR1000'),
+    'open-ticket needs come before new-batch needs even when due later');
+
+$page = $buyer->get('/need-to-order?group=vendor');
+ok(str_contains($page['body'], 'No vendor on file'), 'never-purchased group shown last');
+ok(strpos($page['body'], 'AAL CHEM') < strpos($page['body'], 'SUN CHEMICAL'),
+    'vendor groups are alphabetical');
+
+$page = $buyer->get('/need-to-order?q=PGR');
+ok(str_contains($page['body'], 'PGR1000') && !str_contains($page['body'], 'SOC0403'),
+    'need-to-order search filters');
+
+$csv = $buyer->get('/need-to-order/export?format=csv');
+ok($csv['status'] === 200 && str_contains($csv['body'], 'Vendor code') && str_contains($csv['body'], 'EM2387-TF'),
+    'need-to-order export works');
+
+$page = $prod->get('/need-to-order');
+ok($page['status'] === 404, 'user without purchasing.view gets a plain 404');
+
 /* ── Production marks ───────────────────────────────────────────── */
 echo "== production marks\n";
 $page = $prod->get('/orders/production');
@@ -268,10 +319,11 @@ ok($xlsx['status'] === 200 && str_starts_with($xlsx['body'], 'PK'), 'tickets XLS
 foreach (['or_items','or_inventory','or_orders','or_order_lines','or_tickets',
           'or_ticket_links','or_ticket_materials','or_ticket_readiness',
           'or_coverage_results','or_production_suggestions',
-          'or_order_priority','or_order_notes','or_suggestion_marks'] as $t) {
+          'or_order_priority','or_order_notes','or_suggestion_marks','nto_items'] as $t) {
     $pdo->exec("DELETE FROM {$t}");
 }
 $pdo->exec("DELETE FROM users WHERE username LIKE 'orf\\_%'");
+$pdo->exec("DELETE FROM permission_groups WHERE name = 'OrfBuyers'");
 
 echo "\n{$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

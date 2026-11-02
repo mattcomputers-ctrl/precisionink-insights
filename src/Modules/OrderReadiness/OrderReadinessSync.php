@@ -427,7 +427,8 @@ class OrderReadinessSync
         }
         $c->insertRows('or_ticket_materials', $matRows);
 
-        $readiness = TicketMaterialsEngine::compute($this->tickets, $this->materials, $inventoryQty);
+        $leftover = null;
+        $readiness = TicketMaterialsEngine::compute($this->tickets, $this->materials, $inventoryQty, $leftover);
         $readyRows = [];
         foreach ($readiness as $ordr => $r) {
             $readyRows[] = [
@@ -457,6 +458,52 @@ class OrderReadinessSync
             ];
         }
         $c->insertRows('or_coverage_results', $covRows);
+
+        // ── Hand-off to the Need to Order job (runs later this run) ──
+        // What the open tickets are short of (buy to finish them)…
+        $byOrdr = [];
+        foreach ($this->tickets as $t) {
+            $byOrdr[(int) $t['ordr']] = $t;
+        }
+        $ticketDemands = [];
+        foreach ($readiness as $ordr => $r) {
+            if ($r['status'] !== 'short') {
+                continue;
+            }
+            $t = $byOrdr[$ordr] ?? null;
+            foreach ($r['shortages'] as $s) {
+                $ticketDemands[] = [
+                    'item' => $s['item_code'],
+                    'qty'  => (float) $s['short'],
+                    'due'  => $t['date_required'] ?? null,
+                    'ref'  => 'batch ' . (int) ($t['batch_ordr'] ?? $ordr) . ' (' . ($t['item_code'] ?? '?') . ')',
+                    'src'  => 'ticket',
+                ];
+            }
+        }
+        // …and what new batches must be cut for open sales orders
+        // (coverage shortfalls; discontinued items are never made again).
+        $orderDemands = [];
+        foreach ($results as $detail => $res) {
+            if ($res['status'] !== 'short' || $res['shortfall'] <= 0
+                || str_starts_with((string) $res['reason'], "Can't check")) {
+                continue;
+            }
+            $line = $byDetail[$detail] ?? null;
+            if ($line === null) {
+                continue;
+            }
+            $orderDemands[] = [
+                'item' => $line['item_code'],
+                'qty'  => (float) $res['shortfall'],
+                'due'  => $this->orders[$line['ordr']]['date_required'] ?? null,
+                'ref'  => 'order ' . $line['ordr'] . ' (' . ($line['alias_code'] ?: $line['item_code']) . ')',
+                'src'  => 'order',
+            ];
+        }
+        $c->share('or.leftover_materials', $leftover ?? []);
+        $c->share('or.ticket_demands', $ticketDemands);
+        $c->share('or.order_demands', $orderDemands);
 
         // Swap validations: items/inventory should never be near-empty when
         // there are open orders; others may legitimately be empty.
@@ -558,6 +605,17 @@ class OrderReadinessSync
                 $batchSizes[$code] = $batchByBulk[$bulk];
             }
         }
+
+        // Hand-off to Need to Order: net ticket supply per item (a new batch's
+        // need is first met by batches already cut) + standard batch sizes.
+        $incoming = [];
+        foreach ($supply as $code => $q) {
+            if ($q > 0) {
+                $incoming[$code] = $q;
+            }
+        }
+        $c->share('or.ticket_supply', $incoming);
+        $c->share('or.batch_sizes', $batchByBulk);
 
         $nearPct = (float) Settings::getInt('or.near_minimum_pct', 20);
         $suggestions = SuggestionEngine::compute($sugInput, $batchSizes, $nearPct);
