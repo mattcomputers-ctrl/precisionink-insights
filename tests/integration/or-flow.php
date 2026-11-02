@@ -64,7 +64,7 @@ foreach (['orf_prod' => 'Production', 'orf_ship' => 'Shipping'] as $u => $g) {
 foreach (['or_items','or_inventory','or_orders','or_order_lines','or_tickets',
           'or_ticket_links','or_ticket_materials','or_ticket_readiness',
           'or_coverage_results','or_production_suggestions',
-          'or_order_priority','or_order_notes','or_suggestion_marks','nto_items'] as $t) {
+          'or_order_priority','or_order_notes','or_suggestion_marks','nto_items','nto_min_items'] as $t) {
     $pdo->exec("DELETE FROM {$t}");
 }
 $pdo->exec("INSERT INTO or_items (item_code, description, unit, is_pack, has_recipe, recipe_number, minimum_stock, is_discontinued) VALUES
@@ -259,6 +259,9 @@ $pdo->exec("INSERT INTO nto_items (item_code, description, unit, qty_needed, on_
      '[{\"ref\":\"order 9001 (CUST-A)\",\"src\":\"order\"}]', '[\"E1000\"]'),
     ('NOVEND', 'TEST NEVER BOUGHT', 'lb', 5, 0, NULL, 1, 0, 0, NULL, NULL, NULL, 0,
      '[{\"ref\":\"batch 7000 (A-50)\",\"src\":\"ticket\"}]', '[]')");
+$pdo->exec("INSERT INTO nto_min_items (item_code, description, unit, qty_needed, minimum_stock, on_hand, projected, on_po, first_needed, src_ticket, src_order, has_recipe, preferred_vendor, vendor, vendor_code, vendor_count, refs, via) VALUES
+    ('MINRAW', 'TEST MIN STOCK RAW', 'lb', 120, 100, 60, -20, 0, '2026-11-12', 1, 0, 0, 'AAL CHEM', 'AAL CHEM', 'MR-77', 1,
+     '[{\"ref\":\"batch 7000 (A-50)\",\"src\":\"ticket\"}]', '[]')");
 
 $buyer = new Http($BASE);
 $buyer->login('orf_buyer', 'OrFlow123!');
@@ -303,6 +306,22 @@ ok(str_contains($page['body'], 'PGR1000') && !str_contains($page['body'], 'SOC04
 $csv = $buyer->get('/need-to-order/export?format=csv');
 ok($csv['status'] === 200 && str_contains($csv['body'], 'Vendor code') && str_contains($csv['body'], 'EM2387-TF'),
     'need-to-order export works');
+
+// Minimum-stock lens (Matt, 2026-11-02): projected stock, topped back to min.
+$page = $buyer->get('/need-to-order');
+ok(str_contains($page['body'], 'view=min') && !str_contains($page['body'], 'MINRAW'),
+    'orders lens links to the min lens and hides min-only rows');
+$page = $buyer->get('/need-to-order?view=min');
+ok(str_contains($page['body'], 'MINRAW') && !str_contains($page['body'], 'SOC0403'),
+    'min lens shows min-stock rows only');
+ok(str_contains($page['body'], 'Projected') && str_contains($page['body'], '-20'),
+    'projected column rendered');
+$page = $buyer->get('/need-to-order?view=min&group=preferred');
+ok(str_contains($page['body'], 'AAL CHEM') && str_contains($page['body'], 'vendor-group'),
+    'min lens groups by vendor too');
+$csv = $buyer->get('/need-to-order/export?view=min&format=csv');
+ok($csv['status'] === 200 && str_contains($csv['body'], 'Minimum') && str_contains($csv['body'], 'MINRAW'),
+    'min lens export carries the minimum/projected columns');
 
 $page = $prod->get('/need-to-order');
 ok($page['status'] === 404, 'user without purchasing.view gets a plain 404');

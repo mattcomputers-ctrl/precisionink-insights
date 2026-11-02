@@ -214,6 +214,16 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     first, then first-needed date. Permission purchasing.view, no grants
     seeded. The sync job consumes OrderReadiness's same-run hand-off via
     SyncContext::share, so NeedToOrder registers right after it in App.
+    SECOND LENS (Matt, 2026-11-02): "Minimum stock" — recipe-less items
+    with a CMS minimum whose PROJECTED stock (usable on hand − everything
+    open tickets and still-to-cut batches will consume, from a gross
+    engine pass where purchased leaves net against nothing while
+    intermediates still net their real stock/ticket output) lands below
+    the minimum; order qty = minimum − projected, i.e. topped back UP to
+    minimum. Recipe items stay the production plan's job. Also fixed:
+    ticket output the CoverageEngine already promised to order lines is
+    subtracted from the shared ticket-supply credit (no double counting).
+
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of

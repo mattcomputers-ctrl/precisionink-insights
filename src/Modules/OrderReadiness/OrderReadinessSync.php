@@ -44,6 +44,7 @@ class OrderReadinessSync
     private array $tickets = [];      // list
     private array $links = [];        // list
     private array $materials = [];    // ticket ordr => [item_code => ['qty','unit']]
+    private array $ticketAllocated = []; // item => ticket output coverage gave to orders
 
     public function steps(): array
     {
@@ -446,6 +447,18 @@ class OrderReadinessSync
         foreach ($this->lines as $line) {
             $byDetail[$line['ord_detail']] = $line;
         }
+        // Ticket output the coverage engine PROMISED to order lines — that
+        // output is spoken for and must not be credited again when Need to
+        // Order nets the remaining shortfalls.
+        $this->ticketAllocated = [];
+        foreach ($results as $detail => $res) {
+            foreach ($res['allocations'] as $a) {
+                if (($a['type'] ?? '') === 'ticket' && isset($byDetail[$detail])) {
+                    $code = $byDetail[$detail]['item_code'];
+                    $this->ticketAllocated[$code] = ($this->ticketAllocated[$code] ?? 0) + (float) $a['qty'];
+                }
+            }
+        }
         foreach ($results as $detail => $res) {
             $covRows[] = [
                 'ord_detail'  => $detail,
@@ -501,8 +514,49 @@ class OrderReadinessSync
                 'src'  => 'order',
             ];
         }
+        // …and the FULL material requirements of every open ticket (not just
+        // the short part): the min-stock view projects stock after completing
+        // everything (Matt, 2026-11-02). A pack's bulk line supplied by its
+        // own open batch is internal, not a requirement on stock.
+        $openMfba = [];
+        foreach ($this->tickets as $t) {
+            if ($t['context'] === 'MFBA') {
+                $openMfba[(int) $t['ordr']] = true;
+            }
+        }
+        $ticketRequirements = [];
+        foreach ($this->tickets as $t) {
+            foreach ($this->materials[(int) $t['ordr']] ?? [] as $code => $m) {
+                if ($t['context'] === 'MFPP' && $code === ($t['bulk_code'] ?? null)
+                    && isset($openMfba[(int) ($t['batch_ordr'] ?? 0)])) {
+                    continue;
+                }
+                if ($m['qty'] <= 0) {
+                    continue;
+                }
+                $ticketRequirements[] = [
+                    'item' => $code,
+                    'qty'  => $m['qty'],
+                    'due'  => $t['date_required'] ?? null,
+                    'ref'  => 'batch ' . (int) ($t['batch_ordr'] ?? $t['ordr']) . ' (' . $t['item_code'] . ')',
+                    'src'  => 'ticket',
+                ];
+            }
+        }
+        $itemInfo = [];
+        foreach ($this->items as $code => $it) {
+            $itemInfo[$code] = [
+                'min'             => $it['minimum_stock'],
+                'has_recipe'      => (int) $it['has_recipe'],
+                'is_discontinued' => (int) $it['is_discontinued'],
+            ];
+        }
+
         $c->share('or.leftover_materials', $leftover ?? []);
+        $c->share('or.usable', $inventoryQty);
+        $c->share('or.item_info', $itemInfo);
         $c->share('or.ticket_demands', $ticketDemands);
+        $c->share('or.ticket_requirements', $ticketRequirements);
         $c->share('or.order_demands', $orderDemands);
 
         // Swap validations: items/inventory should never be near-empty when
@@ -608,8 +662,12 @@ class OrderReadinessSync
 
         // Hand-off to Need to Order: net ticket supply per item (a new batch's
         // need is first met by batches already cut) + standard batch sizes.
+        // Output the coverage engine already promised to order lines is
+        // spoken for — subtract it, or shortfalls would be netted against
+        // supply that is covering OTHER orders.
         $incoming = [];
         foreach ($supply as $code => $q) {
+            $q -= $this->ticketAllocated[$code] ?? 0.0;
             if ($q > 0) {
                 $incoming[$code] = $q;
             }

@@ -1,17 +1,20 @@
 <?php
 /**
- * Need to Order — the buy list. Flat (priority order) or grouped by
- * preferred vendor / last-purchased-from vendor (Matt, 2026-11-02).
+ * Need to Order — the buy list, two lenses (Matt, 2026-11-02):
+ *   view=orders  what's needed to complete orders & open tickets
+ *   view=min     minimum stock triggered on PROJECTED stock
+ * Flat (priority order) or grouped by preferred / last-purchased vendor.
  * @var array $rows  @var array $groups  @var string $groupBy  ''|'preferred'|'last'
- * @var string $search  @var ?string $asOf
+ * @var string $view  'orders'|'min'  @var string $search  @var ?string $asOf
  */
 $today = date('Y-m-d');
+$isMin = $view === 'min';
 // $extra FIRST: PHP's + keeps the left side on key collisions, so the
 // override must come first or toggle links silently keep the old value.
 $qs = fn(array $extra) => '/need-to-order?' . http_build_query(array_filter(
-    $extra + ['q' => $search, 'group' => $groupBy], fn($v) => $v !== ''));
+    $extra + ['view' => $isMin ? 'min' : '', 'q' => $search, 'group' => $groupBy], fn($v) => $v !== ''));
 
-$renderRows = function (array $list) use ($today): void {
+$renderRows = function (array $list) use ($today, $isMin): void {
     foreach ($list as $r):
         $overdue = $r['first_needed'] !== null && $r['first_needed'] < $today;
     ?>
@@ -39,6 +42,12 @@ $renderRows = function (array $list) use ($today): void {
                 <?php endif; ?>
             </td>
             <td class="text-right tabular text-danger"><strong><?= fmt_number((float) $r['qty_needed'], 1) ?></strong> <?= e($r['unit']) ?></td>
+            <?php if ($isMin): ?>
+                <td class="text-right tabular"><?= fmt_number((float) $r['minimum_stock'], 1) ?></td>
+                <td class="text-right tabular"><?= fmt_number((float) $r['on_hand'], 1) ?></td>
+                <td class="text-right tabular <?= (float) $r['projected'] < 0 ? 'text-danger' : '' ?>"
+                    title="On hand minus everything open orders and open tickets will consume"><?= fmt_number((float) $r['projected'], 1) ?></td>
+            <?php endif; ?>
             <td class="text-right tabular"><?= (float) $r['on_po'] > 0 ? fmt_number((float) $r['on_po'], 1) : '<span class="text-muted">—</span>' ?></td>
             <td class="<?= $overdue ? 'text-danger' : '' ?>"><?= e(fmt_date($r['first_needed'])) ?><?= $overdue ? ' ⚠' : '' ?></td>
             <td class="nowrap">
@@ -61,7 +70,9 @@ $renderRows = function (array $list) use ($today): void {
 };
 $thead = '<tr>'
     . '<th>Material</th><th>Description</th><th>Preferred vendor</th><th>Last purchased from</th>'
-    . '<th class="text-right">To order</th><th class="text-right">On open POs</th>'
+    . '<th class="text-right">To order</th>'
+    . ($isMin ? '<th class="text-right">Min</th><th class="text-right">On hand</th><th class="text-right">Projected</th>' : '')
+    . '<th class="text-right">On open POs</th>'
     . '<th>First needed</th><th>Why</th><th>Needed by</th></tr>';
 ?>
 <div class="card">
@@ -69,12 +80,22 @@ $thead = '<tr>'
         <div>
             <h2 class="card-title">Need to Order</h2>
             <div class="card-subtitle">
-                Buy this and every open ticket — and every batch still to be cut for open orders — can run.
-                Quantities are already netted against stock and open tickets; nothing is counted twice.
+                <?php if ($isMin): ?>
+                    Minimum stock, forward-looking: on-hand minus everything open orders and open
+                    batch tickets will consume — anything landing below its minimum is topped back UP to minimum.
+                <?php else: ?>
+                    Buy this and every open ticket — and every batch still to be cut for open orders — can run.
+                    Quantities are already netted against stock and open tickets; nothing is counted twice.
+                <?php endif; ?>
                 <?= $asOf !== null ? 'Data as of ' . e(fmt_date($asOf, 'M j, g:i A')) . '.' : '' ?>
+            </div>
+            <div class="flex gap-1" style="margin-top:0.5rem;">
+                <a href="<?= e($qs(['view' => ''])) ?>" class="btn btn-sm <?= !$isMin ? 'btn-primary' : '' ?>">To complete orders</a>
+                <a href="<?= e($qs(['view' => 'min'])) ?>" class="btn btn-sm <?= $isMin ? 'btn-primary' : '' ?>">Minimum stock</a>
             </div>
         </div>
         <form method="GET" action="/need-to-order" class="flex gap-1">
+            <?php if ($isMin): ?><input type="hidden" name="view" value="min"><?php endif; ?>
             <?php if ($groupBy !== ''): ?><input type="hidden" name="group" value="<?= e($groupBy) ?>"><?php endif; ?>
             <input type="text" name="q" value="<?= e($search) ?>" placeholder="Material, vendor or vendor code…" style="min-width:220px;">
             <button type="submit" class="btn btn-sm">Search</button>
@@ -85,7 +106,7 @@ $thead = '<tr>'
             <a href="<?= e($qs(['group' => $groupBy === 'last' ? '' : 'last'])) ?>"
                class="btn btn-sm <?= $groupBy === 'last' ? 'btn-primary' : '' ?>"><?= $groupBy === 'last' ? '✔ ' : '' ?>By last vendor</a>
             <?php if (user_can('export')): ?>
-                <a href="<?= e('/need-to-order/export?' . http_build_query(array_filter(['q' => $search, 'group' => $groupBy]))) ?>"
+                <a href="<?= e('/need-to-order/export?' . http_build_query(array_filter(['view' => $isMin ? 'min' : '', 'q' => $search, 'group' => $groupBy]))) ?>"
                    class="btn btn-sm" data-export="1">⬇ Excel</a>
             <?php endif; ?>
             <?= sync_now_button() ?>
@@ -97,7 +118,9 @@ $thead = '<tr>'
             <span class="empty-icon">✅</span>
             <?= $search !== ''
                 ? 'Nothing on the buy list matches your search.'
-                : ($asOf === null ? 'No data yet — run a sync.' : 'Nothing to order — every open ticket and every pending batch is covered.') ?>
+                : ($asOf === null ? 'No data yet — run a sync.'
+                    : ($isMin ? 'Nothing triggered — every item stays at or above its minimum even after completing everything open.'
+                        : 'Nothing to order — every open ticket and every pending batch is covered.')) ?>
         </div>
     <?php elseif ($groupBy !== ''): ?>
         <div style="margin:0.5rem 0;">

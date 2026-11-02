@@ -7,46 +7,59 @@ namespace PII\Modules\NeedToOrder;
 use PII\Services\Sync\SyncContext;
 
 /**
- * NeedToOrderSync — builds the consolidated buy list each sync.
+ * NeedToOrderSync — builds both buy lists each sync (Matt, 2026-11-02):
  *
- * Consumes the Order Readiness job's hand-off (same run, via
- * SyncContext::share): ticket material shortages, sales-order coverage
- * shortfalls, the leftover material pool, net ticket output and standard
- * batch sizes. Adds from CMS: recipe explosion (level by level), purchase
- * history (buy vs make + primary vendor), open-PO quantities, and item
- * names/units. The pure math lives in NeedToOrderEngine.
+ *   nto_items      "to complete orders": what must be bought so every open
+ *                  ticket — and every batch still to be cut for open sales
+ *                  orders — can run (shortfalls only).
+ *   nto_min_items  "minimum stock": purchased (recipe-less) items whose
+ *                  PROJECTED stock (on hand − everything those tickets and
+ *                  batches will consume) lands below their minimum; the
+ *                  quantity tops them back UP to minimum.
+ *
+ * Consumes the Order Readiness job's same-run hand-off (SyncContext::share).
+ * Adds from CMS: recipe explosion level by level, purchase history (last
+ * vendor + their code), preferred vendor (Item.Supplier), open-PO qty.
+ * The pure math lives in NeedToOrderEngine.
  */
 class NeedToOrderSync
 {
     public function steps(): array
     {
         return [
-            ['name' => 'Building the buy list', 'run' => fn(SyncContext $c) => $this->build($c)],
+            ['name' => 'Building the buy lists', 'run' => fn(SyncContext $c) => $this->build($c)],
         ];
     }
 
     private function build(SyncContext $c): array
     {
-        $demands = array_merge(
-            $c->shared('or.ticket_demands', []),
-            $c->shared('or.order_demands', [])
-        );
-        $stock      = $c->shared('or.leftover_materials', []);
-        $incoming   = $c->shared('or.ticket_supply', []);
-        $batchSizes = $c->shared('or.batch_sizes', []);
+        $ticketShort = $c->shared('or.ticket_demands', []);
+        $ticketFull  = $c->shared('or.ticket_requirements', []);
+        $orderDem    = $c->shared('or.order_demands', []);
+        $leftover    = $c->shared('or.leftover_materials', []);
+        $usable      = $c->shared('or.usable', []);
+        $itemInfo    = $c->shared('or.item_info', []);
+        $incoming    = $c->shared('or.ticket_supply', []);
+        $batchSizes  = $c->shared('or.batch_sizes', []);
 
         $c->stage('nto_items', 'CREATE TABLE {table} LIKE nto_items');
-        if ($demands === []) {
+        $c->stage('nto_min_items', 'CREATE TABLE {table} LIKE nto_min_items');
+
+        $demandsA = array_merge($ticketShort, $orderDem);          // to complete
+        $demandsB = array_merge($ticketFull, $orderDem);           // full projection
+        if ($demandsB === [] && array_filter($itemInfo, fn($i) => $i['min'] !== null) === []) {
             $c->queueSwap('nto_items', 0);
+            $c->queueSwap('nto_min_items', 0);
             return ['rows' => 0];
         }
 
         // Walk the recipe tree level by level: anything with an ACTIVE
         // recipe is made, never bought (Matt, 2026-11-02), so every recipe
-        // found descends into its ingredients.
+        // found descends into its ingredients. One closure serves both
+        // passes (the full requirements are a superset of the shortfalls).
         $recipes = [];     // item => [['item','qty_per'], …]
         $known   = [];     // item => true (already looked up)
-        $frontier = array_values(array_unique(array_column($demands, 'item')));
+        $frontier = array_values(array_unique(array_column($demandsB, 'item')));
 
         for ($depth = 0; $frontier !== [] && $depth < 6; $depth++) {
             $frontier = array_values(array_diff($frontier, array_keys($known)));
@@ -71,15 +84,54 @@ class NeedToOrderSync
             $frontier = array_values(array_unique($next));
         }
 
-        $needs = NeedToOrderEngine::compute($demands, $stock, $incoming, $recipes, $batchSizes);
-        if ($needs === []) {
-            $c->queueSwap('nto_items', 0);
-            return ['rows' => 0];
+        // Pass A — to complete orders: net shortfalls against leftover stock.
+        $needs = $demandsA === [] ? []
+            : NeedToOrderEngine::compute($demandsA, $leftover, $incoming, $recipes, $batchSizes);
+
+        // Pass B — GROSS leaf requirements: intermediates still net against
+        // their real stock and open-ticket output (a bulk on the shelf needs
+        // no raw materials), but purchased leaves net against NOTHING, so
+        // the result is everything the plan will consume per material.
+        $stockIntermediates = array_intersect_key($usable, $recipes);
+        $gross = $demandsB === [] ? []
+            : NeedToOrderEngine::compute($demandsB, $stockIntermediates, $incoming, $recipes, $batchSizes);
+
+        // Minimum-stock rows: projected = on hand − gross consumption; below
+        // minimum → order back up TO the minimum. Items with an active
+        // recipe belong to the production plan, never this list; minimum 99
+        // means discontinued in CMS.
+        $minRows = [];
+        foreach ($itemInfo as $code => $info) {
+            if ($info['min'] === null || $info['is_discontinued'] || $info['has_recipe']) {
+                continue;
+            }
+            $g = $gross[$code] ?? null;
+            $projected = (float) ($usable[$code] ?? 0.0) - ($g['qty'] ?? 0.0);
+            $short = (float) $info['min'] - $projected;
+            if ($short <= 1e-6) {
+                continue;
+            }
+            $minRows[$code] = [
+                'qty'       => round($short, 4),
+                'minimum'   => (float) $info['min'],
+                'on_hand'   => (float) ($usable[$code] ?? 0.0),
+                'projected' => round($projected, 4),
+                'due'       => $g['due'] ?? null,
+                'refs'      => $g['refs'] ?? [],
+                'via'       => $g['via'] ?? [],
+                'srcs'      => $g['srcs'] ?? ['ticket' => false, 'order' => false],
+            ];
         }
 
-        // Last-purchased vendor (+ their code) for the final buy list.
-        $codes = array_keys($needs);
+        $codes = array_values(array_unique(array_merge(array_keys($needs), array_keys($minRows))));
+        if ($codes === []) {
+            $c->queueSwap('nto_items', 0);
+            $c->queueSwap('nto_min_items', 0);
+            return ['rows' => 0];
+        }
         $in = implode(',', array_fill(0, count($codes), '?'));
+
+        // Last-purchased vendor (+ their code) for everything listed.
         $lastVendor = [];
         foreach ($c->cmsFetchAll('last-purchased vendors', "
             SELECT pod.ItemCode, e.EntityName AS Vendor, pod.TheirCode,
@@ -129,23 +181,28 @@ class NeedToOrderSync
             $onPo[$r['ItemCode']] = (float) $r['qty'];
         }
 
-        $rows = [];
-        foreach ($needs as $code => $n) {
-            $rows[] = [
+        $decorate = function (string $code) use ($meta, $lastVendor, $vendorCounts, $onPo): array {
+            return [
                 'item_code'    => $code,
                 'description'  => (string) ($meta[$code]['Description'] ?? ''),
                 'unit'         => (string) ($meta[$code]['Unit'] ?? ''),
-                'qty_needed'   => $n['qty'],
                 'on_po'        => $onPo[$code] ?? 0.0,
-                'first_needed' => $n['due'],
-                'src_ticket'   => $n['srcs']['ticket'] ? 1 : 0,
-                'src_order'    => $n['srcs']['order'] ? 1 : 0,
                 'has_recipe'   => (int) ($meta[$code]['HasRecipe'] ?? 0),
                 'preferred_vendor' => isset($meta[$code]['PreferredVendor']) && trim((string) $meta[$code]['PreferredVendor']) !== ''
                     ? trim((string) $meta[$code]['PreferredVendor']) : null,
                 'vendor'       => $lastVendor[$code]['vendor'] ?? null,
                 'vendor_code'  => $lastVendor[$code]['vendor_code'] ?? null,
                 'vendor_count' => $vendorCounts[$code] ?? 0,
+            ];
+        };
+
+        $rows = [];
+        foreach ($needs as $code => $n) {
+            $rows[] = $decorate($code) + [
+                'qty_needed'   => $n['qty'],
+                'first_needed' => $n['due'],
+                'src_ticket'   => $n['srcs']['ticket'] ? 1 : 0,
+                'src_order'    => $n['srcs']['order'] ? 1 : 0,
                 'refs'         => json_encode($n['refs'], JSON_UNESCAPED_SLASHES),
                 'via'          => json_encode($n['via'], JSON_UNESCAPED_SLASHES),
             ];
@@ -153,6 +210,23 @@ class NeedToOrderSync
         $c->insertRows('nto_items', $rows);
         $c->queueSwap('nto_items', 0);
 
-        return ['rows' => count($rows)];
+        $mRows = [];
+        foreach ($minRows as $code => $m) {
+            $mRows[] = $decorate($code) + [
+                'qty_needed'    => $m['qty'],
+                'minimum_stock' => $m['minimum'],
+                'on_hand'       => $m['on_hand'],
+                'projected'     => $m['projected'],
+                'first_needed'  => $m['due'],
+                'src_ticket'    => $m['srcs']['ticket'] ? 1 : 0,
+                'src_order'     => $m['srcs']['order'] ? 1 : 0,
+                'refs'          => json_encode(array_values($m['refs']), JSON_UNESCAPED_SLASHES),
+                'via'           => json_encode($m['via'], JSON_UNESCAPED_SLASHES),
+            ];
+        }
+        $c->insertRows('nto_min_items', $mRows);
+        $c->queueSwap('nto_min_items', 0);
+
+        return ['rows' => count($rows) + count($mRows)];
     }
 }

@@ -26,12 +26,19 @@ class NeedToOrderController
         };
     }
 
+    /** Which lens: 'orders' (to complete orders) or 'min' (minimum stock). */
+    private function viewMode(): string
+    {
+        return ($_GET['view'] ?? '') === 'min' ? 'min' : 'orders';
+    }
+
     public function index(): void
     {
         $search = trim((string) ($_GET['q'] ?? ''));
         $field  = $this->groupField();
+        $view   = $this->viewMode();
 
-        $rows = $this->rows($search);
+        $rows = $this->rows($search, $view);
 
         $groups = [];
         if ($field !== null) {
@@ -47,6 +54,7 @@ class NeedToOrderController
             'rows'      => $rows,
             'groups'    => $groups,
             'groupBy'   => $field === null ? '' : ($field === 'vendor' ? 'last' : 'preferred'),
+            'view'      => $view,
             'search'    => $search,
             'asOf'      => SyncSettings::lastSuccessAt(),
         ], 'need_to_order');
@@ -56,7 +64,8 @@ class NeedToOrderController
     {
         require_permission('export');
         $field = $this->groupField();
-        $rows = $this->rows(trim((string) ($_GET['q'] ?? '')));
+        $view  = $this->viewMode();
+        $rows = $this->rows(trim((string) ($_GET['q'] ?? '')), $view);
         if ($field !== null) {
             usort($rows, fn($a, $b) =>
                 [($a[$field] ?? '') === '', $a[$field] ?? '', $a['first_needed'] ?? '9999']
@@ -65,32 +74,46 @@ class NeedToOrderController
 
         $out = [];
         foreach ($rows as $r) {
-            $out[] = [
+            $line = [
                 $r['preferred_vendor'], $r['vendor'], $r['vendor_code'], $r['item_code'], $r['description'],
-                round((float) $r['qty_needed'], 2), $r['unit'], (float) $r['on_po'],
+                round((float) $r['qty_needed'], 2), $r['unit'],
+            ];
+            if ($view === 'min') {
+                $line[] = (float) $r['minimum_stock'];
+                $line[] = (float) $r['on_hand'];
+                $line[] = (float) $r['projected'];
+            }
+            $out[] = array_merge($line, [
+                (float) $r['on_po'],
                 $r['first_needed'],
                 ($r['src_ticket'] ? 'open tickets' : '') . ($r['src_ticket'] && $r['src_order'] ? ' + ' : '') . ($r['src_order'] ? 'new batches' : ''),
                 implode('; ', array_column($r['refs_list'], 'ref')),
                 implode(' → ', $r['via_list']),
-            ];
+            ]);
         }
 
         Database::getInstance()->insert('audit_log', [
             'user_id' => current_user_id(), 'entity_type' => 'need_to_order',
             'entity_id' => null, 'action' => 'export',
-            'details' => json_encode(['rows' => count($out), 'group' => $_GET['group'] ?? 'none']),
+            'details' => json_encode(['rows' => count($out), 'view' => $view, 'group' => $_GET['group'] ?? 'none']),
             'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
         ]);
 
-        ListExporter::stream('Need to order',
-            ['Preferred vendor', 'Last purchased from', 'Vendor code', 'Item', 'Description', 'Qty to order', 'Unit', 'On open POs', 'First needed', 'For', 'Needed by', 'To make'],
-            $out, ($_GET['format'] ?? 'xlsx') === 'csv' ? 'csv' : 'xlsx');
+        $header = ['Preferred vendor', 'Last purchased from', 'Vendor code', 'Item', 'Description', 'Qty to order', 'Unit'];
+        if ($view === 'min') {
+            $header = array_merge($header, ['Minimum', 'On hand', 'Projected']);
+        }
+        $header = array_merge($header, ['On open POs', 'First needed', 'For', 'Needed by', 'To make']);
+
+        ListExporter::stream($view === 'min' ? 'Need to order - minimum stock' : 'Need to order',
+            $header, $out, ($_GET['format'] ?? 'xlsx') === 'csv' ? 'csv' : 'xlsx');
     }
 
     /** Snapshot rows, decoded + filtered + priority-sorted. */
-    private function rows(string $search): array
+    private function rows(string $search, string $view = 'orders'): array
     {
-        $rows = Database::getInstance()->fetchAll("SELECT * FROM nto_items");
+        $table = $view === 'min' ? 'nto_min_items' : 'nto_items';
+        $rows = Database::getInstance()->fetchAll("SELECT * FROM {$table}");
         foreach ($rows as &$r) {
             $r['refs_list'] = json_decode((string) ($r['refs'] ?? '[]'), true) ?: [];
             $r['via_list']  = json_decode((string) ($r['via'] ?? '[]'), true) ?: [];
