@@ -282,6 +282,12 @@ ok(str_contains($page['body'], 'group=preferred') && str_contains($page['body'],
 
 $page = $buyer->get('/need-to-order?group=last');
 ok(str_contains($page['body'], 'Never purchased'), 'group by LAST vendor: never-purchased group present');
+ok(str_contains($page['body'], '<details class="vendor-group"') && !str_contains($page['body'], '<details class="vendor-group" open'),
+    'vendor groups are collapsible and start collapsed');
+ok(str_contains($page['body'], 'Expand all'), 'expand-all control present');
+$hit = $buyer->get('/need-to-order?group=last&q=PGR');
+ok(str_contains($hit['body'], '<details class="vendor-group" open'),
+    'groups auto-open while searching');
 ok(strpos($page['body'], 'AAL CHEM') < strpos($page['body'], 'SUN CHEMICAL'),
     'last-vendor groups are alphabetical');
 

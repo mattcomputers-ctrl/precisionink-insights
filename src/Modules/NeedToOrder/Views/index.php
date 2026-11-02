@@ -100,20 +100,50 @@ $thead = '<tr>'
                 : ($asOf === null ? 'No data yet — run a sync.' : 'Nothing to order — every open ticket and every pending batch is covered.') ?>
         </div>
     <?php elseif ($groupBy !== ''): ?>
-        <?php foreach ($groups as $vendor => $list): ?>
-            <h3 style="margin:1rem 0 0.4rem;">
-                <?= $vendor === ''
-                    ? ($groupBy === 'preferred' ? '— No preferred vendor set' : '— Never purchased')
-                    : e($vendor) ?>
-                <span class="text-muted" style="font-weight:normal;font-size:0.85rem;"><?= count($list) ?> item<?= count($list) === 1 ? '' : 's' ?></span>
-            </h3>
-            <div class="table-scroll">
-                <table class="table">
-                    <thead><?= $thead ?></thead>
-                    <tbody><?php $renderRows($list); ?></tbody>
-                </table>
-            </div>
+        <div style="margin:0.5rem 0;">
+            <button type="button" class="btn btn-sm" id="nto-toggle-all" data-state="closed">Expand all</button>
+        </div>
+        <?php foreach ($groups as $vendor => $list):
+            $earliest = null;
+            foreach ($list as $r) {
+                if ($r['first_needed'] !== null && ($earliest === null || $r['first_needed'] < $earliest)) {
+                    $earliest = $r['first_needed'];
+                }
+            }
+        ?>
+            <details class="vendor-group" <?= $search !== '' ? 'open' : '' ?>>
+                <summary>
+                    <strong><?= $vendor === ''
+                        ? ($groupBy === 'preferred' ? 'No preferred vendor set' : 'Never purchased')
+                        : e($vendor) ?></strong>
+                    <span class="text-muted" style="font-size:0.85rem;">
+                        <?= count($list) ?> item<?= count($list) === 1 ? '' : 's' ?>
+                        <?php if ($earliest !== null): ?>
+                            · first needed <span class="<?= $earliest < $today ? 'text-danger' : '' ?>"><?= e(fmt_date($earliest)) ?><?= $earliest < $today ? ' ⚠' : '' ?></span>
+                        <?php endif; ?>
+                    </span>
+                </summary>
+                <div class="table-scroll">
+                    <table class="table">
+                        <thead><?= $thead ?></thead>
+                        <tbody><?php $renderRows($list); ?></tbody>
+                    </table>
+                </div>
+            </details>
         <?php endforeach; ?>
+        <script>
+        (function () {
+            'use strict';
+            var btn = document.getElementById('nto-toggle-all');
+            if (!btn) return;
+            btn.addEventListener('click', function () {
+                var open = btn.dataset.state === 'closed';
+                document.querySelectorAll('details.vendor-group').forEach(function (d) { d.open = open; });
+                btn.dataset.state = open ? 'open' : 'closed';
+                btn.textContent = open ? 'Collapse all' : 'Expand all';
+            });
+        })();
+        </script>
     <?php else: ?>
         <div class="table-scroll">
             <table class="table">

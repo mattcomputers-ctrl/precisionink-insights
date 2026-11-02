@@ -395,6 +395,19 @@ body.colors-off .diff-good, body.colors-off .diff-bad, body.colors-off .diff-war
 .switch input:checked + .slider { background: var(--accent); }
 .switch input:checked + .slider::before { transform: translateX(20px); }
 
+/* ─── Collapsible vendor groups (Need to Order) ─────────────── */
+.vendor-group { border: 1px solid var(--border); border-radius: 8px; margin: 0.5rem 0; background: var(--surface); }
+.vendor-group > summary {
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.6rem 0.9rem; cursor: pointer; user-select: none; border-radius: 8px;
+}
+.vendor-group > summary::before { content: "▸"; color: var(--muted); transition: transform 0.12s; }
+.vendor-group[open] > summary::before { transform: rotate(90deg); }
+.vendor-group > summary::-webkit-details-marker { display: none; }
+.vendor-group > summary:hover { background: var(--surface-2); }
+.vendor-group[open] > summary { border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
+.vendor-group .table-scroll { padding: 0 0.4rem 0.4rem; }
+
 /* ─── Print (production meeting sheets) ─────────────────────── */
 @media print {
     .topbar, .sync-bar, .side-nav, .nav-toggle, #toast-stack, .form-actions, .btn { display: none !important; }
