@@ -6,8 +6,10 @@
  * @var string $search  @var ?string $asOf
  */
 $today = date('Y-m-d');
+// $extra FIRST: PHP's + keeps the left side on key collisions, so the
+// override must come first or toggle links silently keep the old value.
 $qs = fn(array $extra) => '/need-to-order?' . http_build_query(array_filter(
-    ['q' => $search, 'group' => $groupBy] + $extra, fn($v) => $v !== ''));
+    $extra + ['q' => $search, 'group' => $groupBy], fn($v) => $v !== ''));
 
 $renderRows = function (array $list) use ($today): void {
     foreach ($list as $r):

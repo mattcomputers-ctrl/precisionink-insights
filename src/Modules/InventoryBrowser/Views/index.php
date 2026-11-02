@@ -5,8 +5,10 @@
  * @var string $search  @var bool $showAll
  * @var int $total  @var ?string $asOf
  */
-$qs = fn(array $extra) => '/inventory?' . http_build_query(array_filter([
-    'q' => $search, 'all' => $showAll ? '1' : '', ] + $extra, fn($v) => $v !== ''));
+// $extra FIRST: PHP's + keeps the left side on key collisions, so the
+// override must come first or toggle links silently keep the old value.
+$qs = fn(array $extra) => '/inventory?' . http_build_query(array_filter($extra + [
+    'q' => $search, 'all' => $showAll ? '1' : '', ], fn($v) => $v !== ''));
 ?>
 <div class="toolbar" style="margin-bottom:1rem;">
     <form method="GET" action="/inventory" class="flex gap-1" style="flex:1;min-width:280px;max-width:560px;">

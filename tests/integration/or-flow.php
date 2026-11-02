@@ -275,6 +275,11 @@ ok(str_contains($page['body'], 'to make E1000'), 'made-via chain shown');
 ok(strpos($page['body'], 'SOC0403') < strpos($page['body'], 'PGR1000'),
     'open-ticket needs come before new-batch needs even when due later');
 
+// The group buttons must actually carry the new state in their hrefs
+// (regression: PHP's + kept the old value and the buttons did nothing).
+ok(str_contains($page['body'], 'group=preferred') && str_contains($page['body'], 'group=last'),
+    'group-by buttons link to the grouped views');
+
 $page = $buyer->get('/need-to-order?group=last');
 ok(str_contains($page['body'], 'Never purchased'), 'group by LAST vendor: never-purchased group present');
 ok(strpos($page['body'], 'AAL CHEM') < strpos($page['body'], 'SUN CHEMICAL'),

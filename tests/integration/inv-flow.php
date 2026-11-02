@@ -88,6 +88,7 @@ ok(!str_contains($hit['body'], 'SOC0403'), 'search by hidden vendor code finds n
 
 // Zero-activity items hidden by default, shown with the toggle.
 ok(!str_contains($page['body'], 'ZERO-01'), 'zero-activity item hidden by default');
+ok(str_contains($page['body'], 'all=1'), 'show-all toggle link carries the new state');
 $all = $u->get('/inventory?all=1');
 ok(str_contains($all['body'], 'ZERO-01'), 'show-all includes zero-activity items');
 
