@@ -83,9 +83,10 @@ $thead = '<tr>'
                 <?php if ($isMin): ?>
                     Minimum stock, forward-looking: on-hand minus everything open orders and open
                     batch tickets will consume — anything landing below its minimum is topped back UP to minimum.
+                    What's already on an open PO counts as on its way; only the remaining gap is listed.
                 <?php else: ?>
                     Buy this and every open ticket — and every batch still to be cut for open orders — can run.
-                    Quantities are already netted against stock and open tickets; nothing is counted twice.
+                    Netted against stock, open tickets and open POs; nothing is counted twice.
                 <?php endif; ?>
                 <?= $asOf !== null ? 'Data as of ' . e(fmt_date($asOf, 'M j, g:i A')) . '.' : '' ?>
             </div>

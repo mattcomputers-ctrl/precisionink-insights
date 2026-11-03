@@ -196,10 +196,17 @@ class NeedToOrderSync
             ];
         };
 
+        // Open POs count as incoming supply (Matt, 2026-11-02): a row only
+        // appears when there is still a gap AFTER everything already on
+        // order arrives, and only for the remainder.
         $rows = [];
         foreach ($needs as $code => $n) {
+            $toOrder = $n['qty'] - ($onPo[$code] ?? 0.0);
+            if ($toOrder <= 1e-6) {
+                continue;
+            }
             $rows[] = $decorate($code) + [
-                'qty_needed'   => $n['qty'],
+                'qty_needed'   => round($toOrder, 4),
                 'first_needed' => $n['due'],
                 'src_ticket'   => $n['srcs']['ticket'] ? 1 : 0,
                 'src_order'    => $n['srcs']['order'] ? 1 : 0,
@@ -212,8 +219,12 @@ class NeedToOrderSync
 
         $mRows = [];
         foreach ($minRows as $code => $m) {
+            $toOrder = $m['qty'] - ($onPo[$code] ?? 0.0);
+            if ($toOrder <= 1e-6) {
+                continue;   // the POs already on their way restore the minimum
+            }
             $mRows[] = $decorate($code) + [
-                'qty_needed'    => $m['qty'],
+                'qty_needed'    => round($toOrder, 4),
                 'minimum_stock' => $m['minimum'],
                 'on_hand'       => $m['on_hand'],
                 'projected'     => $m['projected'],

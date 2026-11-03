@@ -223,6 +223,10 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     minimum. Recipe items stay the production plan's job. Also fixed:
     ticket output the CoverageEngine already promised to order lines is
     subtracted from the shared ticket-supply credit (no double counting).
+    OPEN POs COUNT AS INCOMING (Matt, 2026-11-02): on both lenses a row
+    only appears when a gap remains after everything on open POs arrives,
+    and only for the remainder (qty − on_po); fully covered items drop
+    off the list. The On open POs column stays for context.
 
 ## Formerly-open items, now decided
 
