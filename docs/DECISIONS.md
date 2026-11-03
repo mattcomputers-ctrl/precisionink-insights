@@ -227,6 +227,15 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     only appears when a gap remains after everything on open POs arrives,
     and only for the remainder (qty − on_po); fully covered items drop
     off the list. The On open POs column stays for context.
+    Fee pseudo-items (GLGroup 'Services': wire fee, shipping charge) ride
+    on tickets/POs but are never something to buy — excluded from both
+    lenses.
+    CONTAINERS COUNT EVERYWHERE (Matt, 2026-11-02): NST packs are skipped
+    by the materials check, but their containers are still fed to the
+    to-complete lens as demands (netted against the stock those packs
+    never claimed); the min lens already projected them via the full
+    ticket requirements, and new batches carry containers per lb through
+    the pack recipe.
 
 ## Formerly-open items, now decided
 

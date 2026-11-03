@@ -478,6 +478,12 @@ class OrderReadinessSync
         foreach ($this->tickets as $t) {
             $byOrdr[(int) $t['ordr']] = $t;
         }
+        $openMfbaSet = [];
+        foreach ($this->tickets as $t) {
+            if ($t['context'] === 'MFBA') {
+                $openMfbaSet[(int) $t['ordr']] = true;
+            }
+        }
         $ticketDemands = [];
         foreach ($readiness as $ordr => $r) {
             if ($r['status'] !== 'short') {
@@ -490,6 +496,28 @@ class OrderReadinessSync
                     'qty'  => (float) $s['short'],
                     'due'  => $t['date_required'] ?? null,
                     'ref'  => 'batch ' . (int) ($t['batch_ordr'] ?? $ordr) . ' (' . ($t['item_code'] ?? '?') . ')',
+                    'src'  => 'ticket',
+                ];
+            }
+        }
+        // NST packs behind an open batch are skipped by the materials check
+        // (normal waiting state), but their CONTAINERS are still needed to
+        // complete the ticket — feed them to Need to Order, where they net
+        // against the stock those packs never claimed (Matt, 2026-11-02).
+        foreach ($this->tickets as $t) {
+            if ($t['context'] !== 'MFPP' || $t['status'] !== 'NST'
+                || !isset($openMfbaSet[(int) ($t['batch_ordr'] ?? 0)])) {
+                continue;
+            }
+            foreach ($this->materials[(int) $t['ordr']] ?? [] as $code => $m) {
+                if ($code === ($t['bulk_code'] ?? null) || $m['qty'] <= 0) {
+                    continue;   // the bulk comes from the batch itself
+                }
+                $ticketDemands[] = [
+                    'item' => $code,
+                    'qty'  => $m['qty'],
+                    'due'  => $t['date_required'] ?? null,
+                    'ref'  => 'batch ' . (int) $t['batch_ordr'] . ' (' . $t['item_code'] . ')',
                     'src'  => 'ticket',
                 ];
             }

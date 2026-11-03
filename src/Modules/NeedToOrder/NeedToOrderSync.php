@@ -152,7 +152,7 @@ class NeedToOrderSync
         // Names, units, preferred vendor, distinct-vendor counts, open-PO qty.
         $meta = [];
         foreach ($c->cmsFetchAll('item names & units', "
-            SELECT i.ItemCode, i.Description, i.Unit,
+            SELECT i.ItemCode, i.Description, i.Unit, i.GLGroup,
                    CASE WHEN i.CostingRecipe IS NULL THEN 0 ELSE 1 END AS HasRecipe,
                    pe.EntityName AS PreferredVendor
             FROM CMS.dbo.Item i
@@ -160,6 +160,9 @@ class NeedToOrderSync
             WHERE i.ItemCode IN ({$in})", $codes) as $r) {
             $meta[$r['ItemCode']] = $r;
         }
+        // Fees and charges (wire fee, shipping) ride on tickets and POs as
+        // pseudo-items, GLGroup 'Services' — never something to BUY.
+        $isService = fn(string $code): bool => ($meta[$code]['GLGroup'] ?? '') === 'Services';
         $vendorCounts = [];
         foreach ($c->cmsFetchAll('vendor counts', "
             SELECT pod.ItemCode, COUNT(DISTINCT o.Entity) AS n
@@ -202,7 +205,7 @@ class NeedToOrderSync
         $rows = [];
         foreach ($needs as $code => $n) {
             $toOrder = $n['qty'] - ($onPo[$code] ?? 0.0);
-            if ($toOrder <= 1e-6) {
+            if ($toOrder <= 1e-6 || $isService($code)) {
                 continue;
             }
             $rows[] = $decorate($code) + [
@@ -220,8 +223,8 @@ class NeedToOrderSync
         $mRows = [];
         foreach ($minRows as $code => $m) {
             $toOrder = $m['qty'] - ($onPo[$code] ?? 0.0);
-            if ($toOrder <= 1e-6) {
-                continue;   // the POs already on their way restore the minimum
+            if ($toOrder <= 1e-6 || $isService($code)) {
+                continue;   // covered by POs on their way, or a fee pseudo-item
             }
             $mRows[] = $decorate($code) + [
                 'qty_needed'    => round($toOrder, 4),
