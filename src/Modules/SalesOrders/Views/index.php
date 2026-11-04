@@ -45,7 +45,7 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
                 <thead>
                     <tr>
                         <th>Order #</th><th>Status</th><th>Customer</th><th>Ship to</th><th>PO #</th>
-                        <th>Ordered</th><th>Required</th><th class="text-right">Lines</th><th class="text-right">Amount</th>
+                        <th>Ship via</th><th>Ordered</th><th>Required</th><th>Shipped</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -56,10 +56,10 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
                         <td><?= e((string) ($o['BillToName'] ?: $o['BillTo'])) ?></td>
                         <td class="text-muted"><?= e((string) ($o['ShipToName'] ?? '')) ?></td>
                         <td class="text-muted"><?= e((string) ($o['PoNumber'] ?? '')) ?></td>
+                        <td><?= e((string) ($o['ShipVia'] ?? '')) ?></td>
                         <td><?= e(fmt_date($o['DateOrdered'])) ?></td>
                         <td><?= e(fmt_date($o['DateRequired'])) ?></td>
-                        <td class="text-right tabular"><?= (int) $o['line_count'] ?></td>
-                        <td class="text-right tabular"><?= $o['amount'] !== null ? fmt_money((float) $o['amount']) : '—' ?></td>
+                        <td><?= $o['LastShipped'] ?? null ? e(fmt_date($o['LastShipped'])) : '<span class="text-muted">—</span>' ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

@@ -29,6 +29,7 @@
             <div class="card-subtitle">
                 <strong><?= e((string) ($head['BillToName'] ?: $head['BillTo'])) ?></strong>
                 <?php if ($head['ShipToName']): ?> · ships to <?= e((string) $head['ShipToName']) ?><?php endif; ?>
+                <?php if (!empty($head['ShipVia'])): ?> · via <strong><?= e((string) $head['ShipVia']) ?></strong><?php endif; ?>
                 <?php if ($head['PoNumber']): ?> · PO <?= e((string) $head['PoNumber']) ?><?php endif; ?>
                 <?php if ($head['SalesmanName']): ?> · salesman <?= e((string) $head['SalesmanName']) ?><?php endif; ?>
                 <br>

@@ -51,32 +51,49 @@ class SalesOrdersController
                        o.Ordr, o.Status, o.PoNumber,
                        bt.EntityCode AS BillTo, bt.EntityName AS BillToName,
                        st.EntityName AS ShipToName,
+                       sv.EntityName AS ShipVia,
                        CONVERT(VARCHAR(10), o.DateOrdered, 23)  AS DateOrdered,
-                       CONVERT(VARCHAR(10), o.DateRequired, 23) AS DateRequired,
-                       ln.line_count, ln.amount
+                       CONVERT(VARCHAR(10), o.DateRequired, 23) AS DateRequired
                 FROM CMS.dbo.Ordr o
                 LEFT JOIN CMS.dbo.Entities bt ON bt.Entity = o.BillTo
                 LEFT JOIN CMS.dbo.Entities st ON st.Entity = o.ShipTo
-                OUTER APPLY (
-                    SELECT COUNT(*) AS line_count,
-                           SUM(od.QtyReqd * COALESCE(od.Price, 0)) AS amount
-                    FROM CMS.dbo.OrdDetail od
-                    WHERE od.Ordr = o.Ordr AND od.Context = 'SH'
-                ) ln
+                LEFT JOIN CMS.dbo.Entities sv ON sv.Entity = o.ShipVia
                 WHERE o.Context = 'SH' AND {$where}
                 ORDER BY o.Ordr DESC", $params);
+
+            $truncated = count($orders) > self::MAX_ROWS;
+            $orders = array_slice($orders, 0, self::MAX_ROWS);
+
+            // Last shipped date per order, one query for the page.
+            if ($orders !== []) {
+                $ids = array_column($orders, 'Ordr');
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $shippedAt = [];
+                foreach ($cms->fetchAll("
+                    SELECT sd.Ordr, CONVERT(VARCHAR(10), MAX(sd.DateShipped), 23) AS LastShipped
+                    FROM CMS.dbo.ShipmentDetails sd
+                    WHERE sd.Ordr IN ({$in})
+                    GROUP BY sd.Ordr", $ids) as $r) {
+                    $shippedAt[(int) $r['Ordr']] = $r['LastShipped'];
+                }
+                foreach ($orders as &$o) {
+                    $o['LastShipped'] = $shippedAt[(int) $o['Ordr']] ?? null;
+                }
+                unset($o);
+            }
         } catch (CMSUnavailableException $e) {
             $error = $e->friendlyMessage();
+            $truncated = false;
         } catch (\Throwable $e) {
             $error = 'CMS query failed: ' . $e->getMessage();
+            $truncated = false;
         }
 
-        $truncated = count($orders) > self::MAX_ROWS;
         layout('sales_orders::index', [
             'pageTitle' => 'Sales Orders',
             'q'         => $q,
             'tab'       => $tab,
-            'orders'    => array_slice($orders, 0, self::MAX_ROWS),
+            'orders'    => $orders,
             'truncated' => $truncated,
             'error'     => $error,
             'asOf'      => SyncSettings::lastSuccessAt(),
@@ -97,6 +114,7 @@ class SalesOrdersController
                 SELECT o.Ordr, o.Status, o.PoNumber, o.Currency, CONVERT(VARCHAR(2000), o.Comment) AS Comment,
                        bt.EntityCode AS BillTo, bt.EntityName AS BillToName,
                        st.EntityCode AS ShipTo, st.EntityName AS ShipToName,
+                       sv.EntityName AS ShipVia,
                        sm.EntityName AS SalesmanName,
                        o.PlacedBy,
                        CONVERT(VARCHAR(10), o.DateOrdered, 23)    AS DateOrdered,
@@ -105,6 +123,7 @@ class SalesOrdersController
                 FROM CMS.dbo.Ordr o
                 LEFT JOIN CMS.dbo.Entities bt ON bt.Entity = o.BillTo
                 LEFT JOIN CMS.dbo.Entities st ON st.Entity = o.ShipTo
+                LEFT JOIN CMS.dbo.Entities sv ON sv.Entity = o.ShipVia
                 LEFT JOIN CMS.dbo.Entities sm ON sm.Entity = o.Salesman
                 WHERE o.Ordr = ? AND o.Context = 'SH'", [$ordr]);
 
