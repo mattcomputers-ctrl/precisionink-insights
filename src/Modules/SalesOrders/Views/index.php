@@ -1,7 +1,7 @@
 <?php
 /**
  * Sales order browser (live CMS).
- * @var string $q  @var string $tab  @var array $orders
+ * @var string $q  @var string $tab  @var string $sort  @var array $orders
  * @var bool $truncated  @var ?string $error  @var ?string $asOf
  */
 $pill = fn(string $s): string => match ($s) {
@@ -25,8 +25,15 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
                    class="btn btn-sm <?= $tab === $key ? 'btn-primary' : '' ?>"><?= e($label) ?></a>
             <?php endforeach; ?>
         </div>
-        <form method="GET" action="/sales-orders" class="flex gap-1">
+        <form method="GET" action="/sales-orders" class="flex gap-1 items-center">
             <input type="hidden" name="tab" value="<?= e($tab) ?>">
+            <?php if ($tab !== 'completed'): ?>
+                <select name="sort" onchange="this.form.submit()" title="Sort order">
+                    <option value="required" <?= $sort === 'required' ? 'selected' : '' ?>>Earliest required first</option>
+                    <option value="ordered" <?= $sort === 'ordered' ? 'selected' : '' ?>>Oldest ordered first</option>
+                    <option value="newest" <?= $sort === 'newest' ? 'selected' : '' ?>>Newest first</option>
+                </select>
+            <?php endif; ?>
             <input type="text" name="q" value="<?= e($q) ?>" placeholder="Order #, customer, PO #, item…" style="min-width:240px;">
             <button type="submit" class="btn btn-sm">Search</button>
         </form>

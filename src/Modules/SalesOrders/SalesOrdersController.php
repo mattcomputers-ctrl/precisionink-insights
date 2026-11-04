@@ -22,6 +22,11 @@ class SalesOrdersController
     {
         $q = trim((string) ($_GET['q'] ?? ''));
         $tab = in_array($_GET['tab'] ?? '', ['open', 'completed', 'all'], true) ? $_GET['tab'] : 'open';
+        // Open orders sort by earliest required date by default; ordered-date
+        // (oldest first) and newest-first are a click away (Matt, 2026-11-04).
+        $sort = in_array($_GET['sort'] ?? '', ['required', 'ordered', 'newest'], true)
+            ? $_GET['sort']
+            : ($tab === 'open' ? 'required' : 'newest');
         $orders = [];
         $error = null;
 
@@ -64,7 +69,11 @@ class SalesOrdersController
                     // shipment) — order numbers alone bury old orders that
                     // shipped late (Matt, 2026-11-04).
                     ? 'o.DateCompleted DESC, o.Ordr DESC'
-                    : 'o.Ordr DESC'), $params);
+                    : match ($sort) {
+                        'required' => 'CASE WHEN o.DateRequired IS NULL THEN 1 ELSE 0 END, o.DateRequired ASC, o.Ordr ASC',
+                        'ordered'  => 'CASE WHEN o.DateOrdered IS NULL THEN 1 ELSE 0 END, o.DateOrdered ASC, o.Ordr ASC',
+                        default    => 'o.Ordr DESC',
+                    }), $params);
 
             $truncated = count($orders) > self::MAX_ROWS;
             $orders = array_slice($orders, 0, self::MAX_ROWS);
@@ -98,6 +107,7 @@ class SalesOrdersController
             'pageTitle' => 'Sales Orders',
             'q'         => $q,
             'tab'       => $tab,
+            'sort'      => $sort,
             'orders'    => $orders,
             'truncated' => $truncated,
             'error'     => $error,
