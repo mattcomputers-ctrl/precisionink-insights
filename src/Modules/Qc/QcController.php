@@ -125,23 +125,6 @@ class QcController
                     WHERE lot.Lot = ?", [(int) $lot]);
 
                 if ($info !== null) {
-                    // The certificate can carry any alias of the item (or
-                    // the item itself) — code AND description.
-                    $aliases = array_merge(
-                        [['ItemCode' => (string) $info['ItemCode'], 'Description' => (string) ($info['Description'] ?? '')]],
-                        $cms->fetchAll("
-                            SELECT al.ItemCode, al.Description
-                            FROM CMS.dbo.Item al WHERE al.ReplacedBy = ?
-                            ORDER BY al.ItemCode", [(int) $info['Item']])
-                    );
-                    $chosen = $aliases[0];
-                    foreach ($aliases as $a) {
-                        if ($a['ItemCode'] === $alias) {
-                            $chosen = $a;
-                            break;
-                        }
-                    }
-
                     // QC results live on the batch's MASTER lot (the bulk lot
                     // that ends up in the QC sample jar), not on pack lots.
                     // Whatever lot was entered — a customer's pack lot
@@ -171,6 +154,51 @@ class QcController
                     }
                     $family = array_values(array_unique($family));
                     $inF = implode(',', array_fill(0, count($family), '?'));
+
+                    // Alias choices: ALL aliases across the bulk and every
+                    // pack size of it, shown WITHOUT the pack extension
+                    // (Matt, 2026-11-04) — e.g. UVXL010-82 offers UVXL010.
+                    $bulkCode = (string) $info['ItemCode'];
+                    $bulkDesc = (string) ($info['Description'] ?? '');
+                    if ($bulkOrdr !== null && (int) $info['Ticket'] !== $bulkOrdr) {
+                        $b = $cms->fetch("
+                            SELECT i2.ItemCode, i2.Description
+                            FROM CMS.dbo.OrdDetail od2
+                            JOIN CMS.dbo.Item i2 ON i2.Item = od2.Item
+                            WHERE od2.Ordr = ? AND od2.Context = 'PK'", [$bulkOrdr]);
+                        if ($b !== null) {
+                            $bulkCode = (string) $b['ItemCode'];
+                            $bulkDesc = (string) ($b['Description'] ?? '');
+                        }
+                    }
+                    // In case the entered lot's item IS a pack (e.g. a pack
+                    // lot with no open chain), fall back to its code stem.
+                    $stem = $bulkCode;
+
+                    $byCode = [$stem => ['ItemCode' => $stem, 'Description' => $bulkDesc]];
+                    foreach ($cms->fetchAll("
+                        SELECT al.ItemCode AS AliasCode, al.Description AS AliasDescription,
+                               inv.ItemCode AS ParentCode
+                        FROM CMS.dbo.Item al
+                        JOIN CMS.dbo.Item inv ON inv.Item = al.ReplacedBy
+                        WHERE inv.ItemCode = ? OR inv.ItemCode LIKE ? ESCAPE '!'
+                        ORDER BY al.ItemCode", [$stem, cms_like_escape($stem) . '-%']) as $r) {
+                        $code = (string) $r['AliasCode'];
+                        // Strip the parent pack's extension off the alias.
+                        $ext = substr((string) $r['ParentCode'], strlen($stem));   // '' or '-82' etc.
+                        if ($ext !== '' && str_ends_with($code, $ext)) {
+                            $code = substr($code, 0, -strlen($ext));
+                        }
+                        $byCode[$code] ??= ['ItemCode' => $code, 'Description' => (string) ($r['AliasDescription'] ?? '')];
+                    }
+                    $aliases = array_values($byCode);
+                    $chosen = $aliases[0];
+                    foreach ($aliases as $a) {
+                        if ($a['ItemCode'] === $alias) {
+                            $chosen = $a;
+                            break;
+                        }
+                    }
 
                     $results = $cms->fetchAll("
                         SELECT t.Description AS TestName, t.Unit AS TestUnit, t.Method,

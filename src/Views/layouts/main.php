@@ -97,6 +97,12 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
                 <span class="nav-icon"><?= $module->icon() !== '' ? $module->icon() : '▪' ?></span>
                 <span class="nav-label"><?= e($module->name()) ?></span>
             </a>
+            <?php if ($key === 'qc' && user_can('qc.coa')): ?>
+                <a href="/qc/coa" class="<?= str_starts_with($uri, '/qc/coa') ? 'active' : '' ?>"
+                   title="Generate a Certificate of Analysis by lot number">
+                    <span class="nav-icon">📜</span><span class="nav-label">COA</span>
+                </a>
+            <?php endif; ?>
         <?php endforeach; ?>
         <?php if (user_can_see_module('margin_watchdog')): ?>
             <a href="/presets" class="<?= str_starts_with($uri, '/presets') ? 'active' : '' ?>">

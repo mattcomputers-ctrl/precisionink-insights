@@ -31,9 +31,9 @@ $spec = function (array $r): string {
         <input type="text" name="lot" value="<?= e($lot) ?>" placeholder="Lot number…" style="min-width:160px;" <?= $lot === '' ? 'autofocus' : '' ?>>
         <?php if ($info !== null): ?>
             <select name="alias" title="Which item code (and its description) appears on the certificate">
-                <?php foreach ($aliases as $a): ?>
+                <?php foreach ($aliases as $i => $a): ?>
                     <option value="<?= e((string) $a['ItemCode']) ?>" <?= $chosen !== null && $a['ItemCode'] === $chosen['ItemCode'] ? 'selected' : '' ?>>
-                        <?= e((string) $a['ItemCode']) ?><?= $a['ItemCode'] === $info['ItemCode'] ? ' (inventory item)' : '' ?>
+                        <?= e((string) $a['ItemCode']) ?><?= $i === 0 ? ' (our item)' : '' ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -58,12 +58,11 @@ $spec = function (array $r): string {
 <div class="card coa-sheet">
     <div class="coa-head">
         <?php if ($logo !== ''): ?>
-            <img src="<?= e($logo) ?>" alt="" class="coa-logo">
-        <?php endif; ?>
-        <div>
+            <img src="<?= e($logo) ?>" alt="<?= e((string) \PII\Core\App::config('company.name', '')) ?>" class="coa-logo">
+        <?php else: ?>
             <div class="coa-company"><?= e((string) \PII\Core\App::config('company.name', '')) ?></div>
-            <h1 class="coa-title">Certificate of Analysis</h1>
-        </div>
+        <?php endif; ?>
+        <h1 class="coa-title">Certificate of Analysis</h1>
     </div>
 
     <table class="coa-meta">
@@ -94,7 +93,7 @@ $spec = function (array $r): string {
                 <tr>
                     <td><?= e((string) $r['TestName']) ?><?= !empty($r['Method']) ? '<div class="text-muted" style="font-size:0.8rem;">' . e((string) $r['Method']) . '</div>' : '' ?></td>
                     <?php if ($mode === 'detail'): ?>
-                        <td class="text-muted"><?= $spec($r) ?: '—' ?></td>
+                        <td class="text-muted nowrap"><?= $spec($r) ?: '—' ?></td>
                         <td class="text-right tabular"><strong><?= $r['Result'] !== null && $r['Result'] !== '' ? e((string) $r['Result']) : '—' ?></strong></td>
                         <td><?= ((int) $r['Passed']) === 1 ? 'PASS' : '<strong class="text-danger">FAIL</strong>' ?></td>
                         <td class="text-muted"><?= e(fmt_date($r['TestedDate'])) ?></td>
