@@ -71,6 +71,20 @@ class CoverageEngine
             $item = $items[$code] ?? ['unit' => $line['unit'] ?? '', 'is_discontinued' => false, 'description' => ''];
             $unit = $line['unit'] !== '' ? $line['unit'] : ($item['unit'] ?? '');
 
+            // Wire fees, shipping charges etc. are not inventoried items —
+            // nothing to stock or ship, so they can never be short
+            // (Matt, 2026-11-04).
+            if (!empty($item['is_service'])) {
+                $results[$line['ord_detail']] = [
+                    'status'      => 'ready',
+                    'allocations' => [],
+                    'covered_qty' => $need,
+                    'shortfall'   => 0.0,
+                    'reason'      => 'Service charge — not an inventoried item.',
+                ];
+                continue;
+            }
+
             // Unit guard: we refuse to allocate across mismatched units
             // rather than guessing a conversion (DECISIONS #31).
             if (($item['unit'] ?? '') !== '' && $unit !== '' && $item['unit'] !== $unit) {

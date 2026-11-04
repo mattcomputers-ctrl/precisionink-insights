@@ -18,6 +18,9 @@ $spec = function (array $r): string {
             <h2 class="card-title">QC Results</h2>
             <div class="card-subtitle">Every test result, live from CMS — newest first.</div>
         </div>
+        <?php if (user_can('qc.coa')): ?>
+            <a href="/qc/coa" class="btn btn-sm">📜 Certificate of Analysis</a>
+        <?php endif; ?>
         <form method="GET" action="/qc" class="flex gap-1 items-center">
             <input type="text" name="q" value="<?= e($q) ?>" placeholder="Item, lot #, ticket #, test, tester…" style="min-width:260px;">
             <label style="display:inline-flex;gap:0.35rem;align-items:center;cursor:pointer;font-size:0.9rem;">
@@ -49,7 +52,7 @@ $spec = function (array $r): string {
                     <tr>
                         <td class="nowrap"><?= e(fmt_date($r['TestedTime'], 'M j, g:i A')) ?></td>
                         <td class="nowrap"><?= $r['ItemCode'] !== null ? item_ctx((string) $r['ItemCode']) : '<span class="text-muted">—</span>' ?></td>
-                        <td class="tabular"><?= e((string) ($r['Lot'] ?? '')) ?></td>
+                        <td><?= lot_ctx($r['Lot'] ?? '') ?></td>
                         <td>
                             <?php if ($r['Ticket'] !== null && user_can('orders.tickets_view')): ?>
                                 <a href="/batch-tickets/<?= (int) $r['Ticket'] ?>"><?= (int) $r['Ticket'] ?></a>

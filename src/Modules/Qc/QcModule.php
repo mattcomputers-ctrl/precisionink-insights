@@ -27,6 +27,7 @@ class QcModule extends Module
     {
         return [
             'qc.view' => 'Browse QC test results (values, pass/fail, lots, tickets)',
+            'qc.coa'  => 'Generate Certificates of Analysis (by lot number)',
         ];
     }
 
@@ -39,7 +40,8 @@ class QcModule extends Module
     {
         $c = QcController::class;
         $router->group('/qc', function (Router $r) use ($c) {
-            $r->get('', $c . '@index');
+            $r->get('',     $c . '@index');
+            $r->get('/coa', $c . '@coa');
         });
     }
 }

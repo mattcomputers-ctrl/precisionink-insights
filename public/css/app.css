@@ -454,8 +454,24 @@ body.colors-off .diff-good, body.colors-off .diff-bad, body.colors-off .diff-war
 .vendor-group[open] > summary { border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
 .vendor-group .table-scroll { padding: 0 0.4rem 0.4rem; }
 
+/* ─── Certificate of Analysis ───────────────────────────────── */
+.coa-sheet { max-width: 820px; }
+.coa-head { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1rem; }
+.coa-logo { max-height: 80px; max-width: 280px; object-fit: contain; }
+.coa-company { font-size: 1.05rem; font-weight: 600; color: var(--muted); }
+.coa-title { margin: 0.1rem 0 0; font-size: 1.6rem; }
+.coa-meta { margin: 0 0 1rem; border-collapse: collapse; }
+.coa-meta td { padding: 0.2rem 1.25rem 0.2rem 0; vertical-align: top; }
+.coa-meta td:first-child { color: var(--muted); white-space: nowrap; }
+.coa-disposition { margin-top: 0.75rem; }
+.coa-disclaimer {
+    margin-top: 1.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border);
+    font-size: 0.8rem; color: var(--muted); white-space: normal;
+}
+
 /* ─── Print (production meeting sheets) ─────────────────────── */
 @media print {
+    .no-print { display: none !important; }
     .topbar, .sync-bar, .side-nav, .nav-toggle, #toast-stack, .form-actions, .btn { display: none !important; }
     .content { margin: 0; padding: 0; max-width: none; }
     .card { box-shadow: none; border-color: #bbb; break-inside: avoid; }

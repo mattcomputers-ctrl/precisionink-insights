@@ -153,14 +153,45 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
     if (user_can('inventory.view') && user_can_see_module('inventory')) {
         $itemMenu[] = ['label' => '🗃 Find in Inventory', 'href' => '/inventory?q={code}'];
     }
+    if (user_can('items.view') && user_can_see_module('items')) {
+        $itemMenu[] = ['label' => '🏷 Item details', 'href' => '/items/view?code={code}'];
+    }
     if (user_can('orders.items_view') && user_can_see_module('order_readiness')) {
         $itemMenu[] = ['label' => '📦 Coverage by item', 'href' => '/orders/by-item?q={code}'];
     }
     if (user_can('purchasing.view') && user_can_see_module('need_to_order')) {
         $itemMenu[] = ['label' => '🛒 Need to Order', 'href' => '/need-to-order?q={code}'];
     }
+    if (user_can('sales.view') && user_can_see_module('sales_orders')) {
+        $itemMenu[] = ['label' => '🧾 Find in Sales Orders', 'href' => '/sales-orders?tab=all&q={code}'];
+    }
+    if (user_can('purchasing.view') && user_can_see_module('purchase_orders')) {
+        $itemMenu[] = ['label' => '🚛 Find in Purchase Orders', 'href' => '/purchase-orders?tab=all&q={code}'];
+    }
+    if (user_can('orders.tickets_view') && user_can_see_module('batch_tickets')) {
+        $itemMenu[] = ['label' => '🏭 Find in Batch Tickets', 'href' => '/batch-tickets?tab=all&q={code}'];
+    }
+    if (user_can('qc.view') && user_can_see_module('qc')) {
+        $itemMenu[] = ['label' => '🧪 QC results', 'href' => '/qc?q={code}'];
+    }
+
+    // …and lot numbers get their own menu (COA, QC, the ticket that made it).
+    $lotMenu = [];
+    if (user_can('qc.coa') && user_can_see_module('qc')) {
+        $lotMenu[] = ['label' => '📜 Generate COA', 'href' => '/qc/coa?lot={lot}'];
+    }
+    if (user_can('qc.view') && user_can_see_module('qc')) {
+        $lotMenu[] = ['label' => '🧪 QC results for lot', 'href' => '/qc?q={lot}'];
+    }
+    if (user_can('orders.tickets_view') && user_can_see_module('batch_tickets')) {
+        $lotMenu[] = ['label' => '🏭 Find in Batch Tickets', 'href' => '/batch-tickets?tab=all&q={lot}'];
+    }
+    if (user_can('inventory.view') && user_can_see_module('inventory')) {
+        $lotMenu[] = ['label' => '🗃 Find in Inventory', 'href' => '/inventory?q={lot}'];
+    }
     ?>
-    <script>window.PII_ITEM_MENU = <?= json_encode($itemMenu, JSON_UNESCAPED_SLASHES) ?>;</script>
+    <script>window.PII_ITEM_MENU = <?= json_encode($itemMenu, JSON_UNESCAPED_SLASHES) ?>;
+window.PII_LOT_MENU = <?= json_encode($lotMenu, JSON_UNESCAPED_SLASHES) ?>;</script>
     <script src="<?= e(asset_url('js/app.js')) ?>"></script>
 </body>
 </html>

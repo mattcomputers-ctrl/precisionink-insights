@@ -69,7 +69,7 @@ foreach ($receipts as $r) {
                             <div class="nowrap">
                                 <?= e(fmt_date($r['ReceivedAt'], 'M j, Y')) ?>:
                                 <?= fmt_number((float) $r['PSQty'], 1) ?> <?= e((string) ($r['PSUnit'] ?? '')) ?>
-                                <?php if ($r['SublotCode']): ?>· lot <?= e((string) $r['SublotCode']) ?><?php endif; ?>
+                                <?php if ($r['SublotCode']): ?>· lot <?= lot_ctx($r['SublotCode']) ?><?php endif; ?>
                                 <?php if ($r['SupLot']): ?>· their lot <?= e((string) $r['SupLot']) ?><?php endif; ?>
                             </div>
                         <?php endforeach; ?>

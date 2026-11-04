@@ -324,6 +324,16 @@ function item_ctx(string $code, ?string $label = null, bool $strong = true): str
     return '<span class="item-ctx" data-item="' . e($code) . '" title="Right-click for item options">' . $inner . '</span>';
 }
 
+/** Lot numbers get their own right-click menu (QC, COA, batch ticket). */
+function lot_ctx(string|int|null $lot): string
+{
+    $lot = trim((string) $lot);
+    if ($lot === '') {
+        return '';
+    }
+    return '<span class="lot-ctx tabular" data-lot="' . e($lot) . '" title="Right-click for lot options">' . e($lot) . '</span>';
+}
+
 /* ------------------------------------------------------------------
  *  Number / money formatting
  * ----------------------------------------------------------------*/

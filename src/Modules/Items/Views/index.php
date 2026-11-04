@@ -34,7 +34,7 @@
                 <?php foreach ($items as $it): ?>
                     <tr>
                         <td class="nowrap">
-                            <a href="/items/view?code=<?= urlencode((string) $it['ItemCode']) ?>"><strong><?= e((string) $it['ItemCode']) ?></strong></a>
+                            <a href="/items/view?code=<?= urlencode((string) $it['ItemCode']) ?>"><?= item_ctx((string) $it['ItemCode']) ?></a>
                         </td>
                         <td><?= e((string) ($it['Description'] ?? '')) ?></td>
                         <td class="text-muted"><?= e((string) ($it['Unit'] ?? '')) ?></td>

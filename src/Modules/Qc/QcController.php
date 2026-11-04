@@ -6,6 +6,8 @@ namespace PII\Modules\Qc;
 
 use PII\Core\CMSDatabase;
 use PII\Core\CMSUnavailableException;
+use PII\Core\Database;
+use PII\Services\Settings;
 use PII\Services\Sync\SyncSettings;
 
 require_once dirname(__DIR__, 2) . '/Helpers/layout.php';
@@ -84,6 +86,136 @@ class QcController
             'failedOnly' => $failedOnly,
             'results'    => array_slice($results, 0, self::MAX_ROWS),
             'truncated'  => $truncated,
+            'error'      => $error,
+            'asOf'       => SyncSettings::lastSuccessAt(),
+        ], 'qc');
+    }
+
+    /**
+     * Certificate of Analysis by lot number (Matt, 2026-11-04): pick the
+     * alias shown on the certificate (its description prints too), choose
+     * PASS/FAIL-only or full detailed data. Logo + disclaimer come from
+     * Admin → System settings. Printable.
+     */
+    public function coa(): void
+    {
+        require_permission('qc.coa');
+        $lot   = trim((string) ($_GET['lot'] ?? ''));
+        $alias = trim((string) ($_GET['alias'] ?? ''));
+        $mode  = ($_GET['mode'] ?? 'detail') === 'summary' ? 'summary' : 'detail';
+
+        $info = null;
+        $aliases = [];
+        $chosen = null;
+        $results = [];
+        $error = null;
+
+        if ($lot !== '') {
+            try {
+                $cms = CMSDatabase::getInstance();
+                $info = $cms->fetch("
+                    SELECT lot.Lot, i.Item, i.ItemCode, i.Description, i.Unit,
+                           CONVERT(VARCHAR(10), lot.ManfDate, 23)     AS ManfDate,
+                           CONVERT(VARCHAR(10), lot.ReceivedDate, 23) AS ReceivedDate,
+                           o.Ordr AS Ticket, o.Context AS TicketCtx
+                    FROM CMS.dbo.Lot lot
+                    JOIN CMS.dbo.Item i ON i.Item = lot.Item
+                    LEFT JOIN CMS.dbo.OrdDetail od ON od.OrdDetail = lot.OrdDetail
+                    LEFT JOIN CMS.dbo.Ordr o ON o.Ordr = od.Ordr
+                    WHERE lot.Lot = ?", [(int) $lot]);
+
+                if ($info !== null) {
+                    // The certificate can carry any alias of the item (or
+                    // the item itself) — code AND description.
+                    $aliases = array_merge(
+                        [['ItemCode' => (string) $info['ItemCode'], 'Description' => (string) ($info['Description'] ?? '')]],
+                        $cms->fetchAll("
+                            SELECT al.ItemCode, al.Description
+                            FROM CMS.dbo.Item al WHERE al.ReplacedBy = ?
+                            ORDER BY al.ItemCode", [(int) $info['Item']])
+                    );
+                    $chosen = $aliases[0];
+                    foreach ($aliases as $a) {
+                        if ($a['ItemCode'] === $alias) {
+                            $chosen = $a;
+                            break;
+                        }
+                    }
+
+                    // QC results live on the batch's MASTER lot (the bulk lot
+                    // that ends up in the QC sample jar), not on pack lots.
+                    // Whatever lot was entered — a customer's pack lot
+                    // included — resolve the whole batch family and pull the
+                    // results from it (Matt, 2026-11-04).
+                    $family = [(int) $lot];
+                    $bulkOrdr = null;
+                    if (($info['TicketCtx'] ?? '') === 'MFBA') {
+                        $bulkOrdr = (int) $info['Ticket'];
+                    } elseif (($info['TicketCtx'] ?? '') === 'MFPP') {
+                        $b = $cms->fetch("
+                            SELECT TOP 1 so.Ordr
+                            FROM CMS.dbo.OrdDetailCommit oc
+                            JOIN CMS.dbo.OrdDetail dd ON dd.OrdDetail = oc.OrdDetail AND dd.Ordr = ?
+                            JOIN CMS.dbo.OrdDetail ss ON ss.OrdDetail = oc.SrcOrdDetail
+                            JOIN CMS.dbo.Ordr so ON so.Ordr = ss.Ordr AND so.Context = 'MFBA'",
+                            [(int) $info['Ticket']]);
+                        $bulkOrdr = $b !== null ? (int) $b['Ordr'] : null;
+                    }
+                    if ($bulkOrdr !== null) {
+                        foreach ($cms->fetchAll("
+                            SELECT lot2.Lot FROM CMS.dbo.Lot lot2
+                            JOIN CMS.dbo.OrdDetail od2 ON od2.OrdDetail = lot2.OrdDetail
+                            WHERE od2.Ordr = ? AND od2.Context = 'PK'", [$bulkOrdr]) as $r) {
+                            $family[] = (int) $r['Lot'];
+                        }
+                    }
+                    $family = array_values(array_unique($family));
+                    $inF = implode(',', array_fill(0, count($family), '?'));
+
+                    $results = $cms->fetchAll("
+                        SELECT t.Description AS TestName, t.Unit AS TestUnit, t.Method,
+                               CONVERT(VARCHAR(400), lst.Result) AS Result, lst.Passed,
+                               CONVERT(VARCHAR(10), lst.TestedTime, 23) AS TestedDate,
+                               u.DisplayName AS TestedBy,
+                               spec.Min AS SpecMin, spec.Target AS SpecTarget, spec.Max AS SpecMax
+                        FROM CMS.dbo.LocationSampleTest lst
+                        JOIN CMS.dbo.Test t ON t.Test = lst.Test
+                        LEFT JOIN CMS.dbo.[User] u ON u.[User] = lst.TestedBy
+                        JOIN CMS.dbo.Inventory inv ON inv.Location = lst.Location
+                        JOIN CMS.dbo.Sublot sl ON sl.Sublot = inv.Sublot
+                        JOIN CMS.dbo.Lot flot ON flot.Lot = sl.Lot
+                        OUTER APPLY (
+                            SELECT TOP 1 it.Min, it.Max, it.Target
+                            FROM CMS.dbo.ItemTest it
+                            WHERE it.Item = flot.Item AND it.Test = lst.Test
+                        ) spec
+                        WHERE sl.Lot IN ({$inF})
+                        ORDER BY lst.TestedTime", $family);
+
+                    Database::getInstance()->insert('audit_log', [
+                        'user_id' => current_user_id(), 'entity_type' => 'coa',
+                        'entity_id' => $lot, 'action' => 'generate',
+                        'details' => json_encode(['item' => $info['ItemCode'], 'shown_as' => $chosen['ItemCode'], 'mode' => $mode]),
+                        'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+                    ]);
+                }
+            } catch (CMSUnavailableException $e) {
+                $error = $e->friendlyMessage();
+            } catch (\Throwable $e) {
+                $error = 'CMS query failed: ' . $e->getMessage();
+            }
+        }
+
+        layout('qc::coa', [
+            'pageTitle'  => 'Certificate of Analysis',
+            'lot'        => $lot,
+            'info'       => $info,
+            'aliases'    => $aliases,
+            'chosen'     => $chosen,
+            'mode'       => $mode,
+            'results'    => $results,
+            'logo'       => (string) (Settings::get('coa.logo') ?? ''),
+            'disclaimer' => trim((string) (Settings::get('coa.disclaimer') ?? '')),
             'error'      => $error,
             'asOf'       => SyncSettings::lastSuccessAt(),
         ], 'qc');

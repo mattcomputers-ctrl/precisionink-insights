@@ -821,6 +821,7 @@ class OrderReadinessController
         foreach ($db->fetchAll("SELECT * FROM or_items") as $i) {
             $items[$i['item_code']] = [
                 'unit' => $i['unit'], 'is_discontinued' => (bool) $i['is_discontinued'],
+                'is_service' => (bool) ($i['is_service'] ?? 0),
                 'description' => $i['description'],
             ];
         }

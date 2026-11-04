@@ -296,6 +296,28 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     nvarchar(max)) are CONVERTed to VARCHAR in the SELECT or FreeTDS
     returns them empty.
 
+48. **Service items, richer menus, COA (Matt, 2026-11-04):**
+    (a) GLGroup 'Services' items (wire fee, shipping charge) carry
+    or_items.is_service: CoverageEngine marks their order lines ready
+    ("Service charge - not an inventoried item") and the materials check
+    skips them entirely - they can never trip as short anywhere.
+    (b) The item right-click menu gained Item details, Find in Sales
+    Orders / Purchase Orders / Batch Tickets and QC results; LOT numbers
+    got their own menu (lot_ctx(): Generate COA, QC results for lot, Find
+    in Batch Tickets / Inventory) wired through QC, Batch Tickets, Items
+    and PO receipt views.
+    (c) COA generation (/qc/coa, permission qc.coa): by lot number, with
+    the alias to print selected by the user (the ALIAS's own description
+    prints), PASS/FAIL-only or detailed mode (specs + results + dates),
+    admin-configured logo (upload to public/uploads, settings key
+    coa.logo) and disclaimer (coa.disclaimer) at the bottom, printable,
+    audit-logged. LOT FAMILY RULE (Matt): QC results live on the batch's
+    MASTER lot (which survives only in the QC sample jar after packing);
+    pack lots are labels. The COA resolves ANY family lot - a customer's
+    pack lot included - to the master's results via OrdDetailCommit, and
+    the ticket page shows one master lot (packs' lots are a column on
+    their pack rows).
+
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of

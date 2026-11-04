@@ -358,36 +358,42 @@
         });
     }
 
-    /* ── Item right-click menu: cross-links between modules ─────── */
+    /* ── Right-click menus: items and lots, cross-links between modules ── */
     const itemMenu = window.PII_ITEM_MENU || [];
-    if (itemMenu.length > 0) {
+    const lotMenu = window.PII_LOT_MENU || [];
+    if (itemMenu.length > 0 || lotMenu.length > 0) {
         let menuEl = null;
         const closeMenu = () => { if (menuEl) { menuEl.remove(); menuEl = null; } };
 
         document.addEventListener('contextmenu', (e) => {
-            const target = e.target.closest('.item-ctx');
+            const target = e.target.closest('.item-ctx, .lot-ctx');
             if (!target) { closeMenu(); return; }
+            const isItem = target.classList.contains('item-ctx');
+            const entries = isItem ? itemMenu : lotMenu;
+            if (entries.length === 0) { closeMenu(); return; }
             e.preventDefault();
             closeMenu();
-            const code = target.dataset.item;
+            const value = isItem ? target.dataset.item : target.dataset.lot;
 
             menuEl = document.createElement('div');
             menuEl.className = 'ctx-menu';
             const title = document.createElement('div');
             title.className = 'ctx-menu-title';
-            title.textContent = code;
+            title.textContent = isItem ? value : 'Lot ' + value;
             menuEl.appendChild(title);
-            itemMenu.forEach((entry) => {
+            entries.forEach((entry) => {
                 const a = document.createElement(entry.href ? 'a' : 'button');
                 a.className = 'ctx-menu-item';
                 a.textContent = entry.label;
                 if (entry.href) {
-                    a.href = entry.href.replace('{code}', encodeURIComponent(code));
+                    a.href = entry.href
+                        .replace('{code}', encodeURIComponent(value))
+                        .replace('{lot}', encodeURIComponent(value));
                 } else if (entry.action === 'recipe') {
                     a.type = 'button';
                     a.addEventListener('click', () => {
                         closeMenu();
-                        window.PII.openRecipe('/recipes/active?code=' + encodeURIComponent(code));
+                        window.PII.openRecipe('/recipes/active?code=' + encodeURIComponent(value));
                     });
                 }
                 menuEl.appendChild(a);

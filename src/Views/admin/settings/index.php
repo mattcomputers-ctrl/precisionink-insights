@@ -44,6 +44,43 @@ $earliest     = $snapshotInfo['earliest'] ?? null;
     </div>
 </form>
 
+<form method="POST" action="/admin/settings/coa" enctype="multipart/form-data">
+    <?= csrf_field() ?>
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h2 class="card-title">Certificates of Analysis</h2>
+                <div class="card-subtitle">
+                    The logo and disclaimer printed on every COA (QC Results → Certificate of Analysis).
+                </div>
+            </div>
+        </div>
+        <?php $coaLogo = \PII\Services\Settings::get('coa.logo'); ?>
+        <div class="form-group">
+            <label>Company logo</label>
+            <?php if ($coaLogo): ?>
+                <div style="margin:0.4rem 0;">
+                    <img src="<?= e($coaLogo) ?>" alt="COA logo" style="max-height:70px;max-width:260px;border:1px solid var(--border);border-radius:6px;padding:4px;background:#fff;">
+                </div>
+                <label style="display:inline-flex;gap:0.35rem;align-items:center;font-weight:normal;cursor:pointer;">
+                    <input type="checkbox" name="remove_logo" value="1"> Remove the current logo
+                </label>
+            <?php endif; ?>
+            <input type="file" name="coa_logo" accept=".png,.jpg,.jpeg,.gif,.webp">
+            <div class="form-hint">PNG, JPG, GIF or WEBP, up to 2 MB. Shown at the top of the certificate.</div>
+        </div>
+        <div class="form-group">
+            <label for="coa_disclaimer">Disclaimer statement</label>
+            <textarea name="coa_disclaimer" id="coa_disclaimer" rows="4" style="width:100%;"
+                placeholder="e.g. The results above apply only to the lot stated. This certificate is provided…"><?= e((string) (\PII\Services\Settings::get('coa.disclaimer') ?? '')) ?></textarea>
+            <div class="form-hint">Printed at the bottom of every certificate. Leave empty for none.</div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save COA settings</button>
+        </div>
+    </div>
+</form>
+
 <div class="card">
     <div class="card-header">
         <div>

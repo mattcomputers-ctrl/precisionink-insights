@@ -58,7 +58,7 @@
             ?>
                 <tr>
                     <td class="nowrap"><?= item_ctx((string) $l['ItemCode'], (string) ($l['AliasCode'] ?: $l['ItemCode'])) ?></td>
-                    <td class="nowrap text-muted"><?= e((string) ($l['ItemCode'] ?? '')) ?></td>
+                    <td class="nowrap text-muted"><?= item_ctx((string) ($l['ItemCode'] ?? ''), null, false) ?></td>
                     <td><?= e((string) ($l['AliasDescription'] ?: $l['Description'] ?? '')) ?></td>
                     <td class="text-right tabular"><?= fmt_number((float) $l['QtyReqd'], 1) ?> <?= e((string) $l['Unit']) ?></td>
                     <td class="text-right tabular"><?= fmt_number((float) ($l['QtyUsed'] ?? 0), 1) ?></td>

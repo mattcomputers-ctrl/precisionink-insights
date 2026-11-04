@@ -151,3 +151,14 @@ $s2 = SuggestionEngine::compute([
                'on_hand' => 2, 'on_tickets' => 0, 'open_demand' => 0, 'open_ticket' => 194236],
 ], [], 20.0);
 t_check(($s2['BULK']['open_ticket'] ?? null) === 194236, 'open_ticket carried onto the suggestion row');
+
+t_section('CoverageEngine: service charges are never short');
+
+// Wire fees / shipping charges are not inventoried (Matt, 2026-11-04).
+$r = CoverageEngine::compute([100 => ['position' => 1]],
+    [['ord_detail' => 9, 'ordr' => 100, 'item_code' => 'SHIPPING CHARGE', 'qty_remaining' => 1, 'unit' => 'ea', 'alias_code' => null]],
+    ['SHIPPING CHARGE' => ['unit' => 'ea', 'is_discontinued' => false, 'description' => '', 'is_service' => true]],
+    [], []);
+t_check($r[9]['status'] === 'ready', 'service line is ready with zero stock');
+t_check($r[9]['shortfall'] == 0.0, 'service line never short');
+t_check(str_contains($r[9]['reason'], 'Service charge'), 'reason says it is a service charge');

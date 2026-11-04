@@ -826,6 +826,57 @@ class AdminController
         redirect('/admin/settings');
     }
 
+    /**
+     * COA settings (Matt, 2026-11-04): company logo + disclaimer printed
+     * on every Certificate of Analysis.
+     */
+    public function saveCoaSettings(): void
+    {
+        CSRF::validateRequest();
+
+        \PII\Services\Settings::set('coa.disclaimer', trim((string) ($_POST['coa_disclaimer'] ?? '')));
+
+        $uploadDir = App::basePath() . '/public/uploads';
+        if (($_POST['remove_logo'] ?? '') === '1') {
+            foreach (glob($uploadDir . '/coa-logo.*') ?: [] as $f) {
+                @unlink($f);
+            }
+            \PII\Services\Settings::set('coa.logo', '');
+        } elseif (!empty($_FILES['coa_logo']['tmp_name']) && is_uploaded_file($_FILES['coa_logo']['tmp_name'])) {
+            $imageInfo = @getimagesize($_FILES['coa_logo']['tmp_name']);
+            $extByType = [IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_GIF => 'gif', IMAGETYPE_WEBP => 'webp'];
+            if ($imageInfo === false || !isset($extByType[$imageInfo[2]])) {
+                $_SESSION['_flash']['error'] = 'The logo must be a PNG, JPG, GIF or WEBP image.';
+                redirect('/admin/settings');
+            }
+            if (($_FILES['coa_logo']['size'] ?? 0) > 2 * 1024 * 1024) {
+                $_SESSION['_flash']['error'] = 'The logo must be under 2 MB.';
+                redirect('/admin/settings');
+            }
+            if (!is_dir($uploadDir)) {
+                @mkdir($uploadDir, 0775, true);
+            }
+            foreach (glob($uploadDir . '/coa-logo.*') ?: [] as $f) {
+                @unlink($f);
+            }
+            $ext = $extByType[$imageInfo[2]];
+            move_uploaded_file($_FILES['coa_logo']['tmp_name'], $uploadDir . '/coa-logo.' . $ext);
+            \PII\Services\Settings::set('coa.logo', '/uploads/coa-logo.' . $ext . '?v=' . time());
+        }
+
+        Database::getInstance()->insert('audit_log', [
+            'user_id'     => current_user_id(),
+            'entity_type' => 'settings',
+            'entity_id'   => 'coa',
+            'action'      => 'update',
+            'details'     => json_encode(['logo' => \PII\Services\Settings::get('coa.logo')]),
+            'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+
+        $_SESSION['_flash']['success'] = 'COA settings saved.';
+        redirect('/admin/settings');
+    }
+
     /** Hidden shared-component reference page (SPEC §4). */
     public function uiKit(): void
     {

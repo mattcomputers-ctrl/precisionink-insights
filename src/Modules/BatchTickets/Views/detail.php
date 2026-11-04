@@ -63,9 +63,17 @@ $done = in_array($head['Status'] ?? '', ['CMP', 'CLS', 'BAT'], true);
             <thead>
                 <tr><th>Pack</th><th>Description</th><th>Status</th>
                     <th class="text-right">Expected</th><th class="text-right">Packed</th>
-                    <th>Containers &amp; materials</th><th>Run</th></tr>
+                    <th>Lot</th><th>Containers &amp; materials</th><th>Run</th></tr>
             </thead>
             <tbody>
+            <?php
+            $packLots = [];
+            foreach ($lots as $pl) {
+                if ((int) $pl['MadeOn'] !== (int) $ordr) {
+                    $packLots[(int) $pl['MadeOn']][] = (string) $pl['Lot'];
+                }
+            }
+            ?>
             <?php foreach ($packs as $p): ?>
                 <tr>
                     <td class="nowrap"><?= item_ctx((string) $p['ItemCode']) ?></td>
@@ -74,6 +82,11 @@ $done = in_array($head['Status'] ?? '', ['CMP', 'CLS', 'BAT'], true);
                     <td class="text-right tabular"><strong><?= fmt_number((float) $p['Expected'], 1) ?></strong> <?= e((string) $p['Unit']) ?></td>
                     <td class="text-right tabular">
                         <?= $p['Packed'] !== null ? '<strong>' . fmt_number((float) $p['Packed'], 1) . '</strong> ' . e((string) $p['Unit']) : '<span class="text-muted">—</span>' ?>
+                    </td>
+                    <td class="nowrap">
+                        <?php foreach ($packLots[(int) $p['Ordr']] ?? [] as $plc): ?>
+                            <div><?= lot_ctx($plc) ?></div>
+                        <?php endforeach; ?>
                     </td>
                     <td style="font-size:0.85rem;" class="text-muted">
                         <?php foreach ($p['materials'] as $m): ?>
@@ -185,21 +198,34 @@ $done = in_array($head['Status'] ?? '', ['CMP', 'CLS', 'BAT'], true);
 <?php endif; ?>
 
 <div class="card">
-    <h2 class="card-title">Produced lots &amp; QC</h2>
-    <?php if ($lots === []): ?>
-        <div class="empty-state"><span class="empty-icon">🏷</span>No lots produced yet.</div>
-    <?php else: ?>
-        <?php
-        $qcByLot = [];
-        foreach ($qc as $r) {
-            $qcByLot[(string) $r['Lot']][] = $r;
+    <h2 class="card-title">Master lot &amp; QC</h2>
+    <?php
+    // Pack lots are just labels on the pack rows above — QC lives on the
+    // batch's MASTER lot (Matt, 2026-11-04). Results recorded on any lot
+    // in the family are shown here, under the master.
+    $masterLots = array_values(array_filter($lots, fn($l) => (int) $l['MadeOn'] === (int) $ordr));
+    $qcByLot = [];
+    foreach ($qc as $r) {
+        $qcByLot[(string) $r['Lot']][] = $r;
+    }
+    if ($masterLots !== [] && count($masterLots) === 1) {
+        // Fold family results (e.g. recorded against a pack lot) into the master.
+        $masterKey = (string) $masterLots[0]['Lot'];
+        foreach ($qcByLot as $k => $rows) {
+            if ($k !== $masterKey) {
+                $qcByLot[$masterKey] = array_merge($qcByLot[$masterKey] ?? [], $rows);
+                unset($qcByLot[$k]);
+            }
         }
-        ?>
-        <?php foreach ($lots as $lot): ?>
-            <h3 style="margin:0.75rem 0 0.3rem;">Lot <?= e((string) $lot['Lot']) ?>
+    }
+    ?>
+    <?php if ($masterLots === []): ?>
+        <div class="empty-state"><span class="empty-icon">🏷</span>No lot produced yet.</div>
+    <?php else: ?>
+        <?php foreach ($masterLots as $lot): ?>
+            <h3 style="margin:0.75rem 0 0.3rem;">Lot <?= lot_ctx($lot['Lot']) ?>
                 <span class="text-muted" style="font-weight:normal;font-size:0.85rem;">
                     <?= e((string) ($lot['ItemCode'] ?? '')) ?><?= $lot['ManfDate'] ? ' · made ' . e(fmt_date($lot['ManfDate'])) : '' ?>
-                    <?= (int) $lot['MadeOn'] !== (int) $ordr ? ' · pack run ' . (int) $lot['MadeOn'] : '' ?>
                 </span>
             </h3>
             <?php $results = $qcByLot[(string) $lot['Lot']] ?? []; ?>

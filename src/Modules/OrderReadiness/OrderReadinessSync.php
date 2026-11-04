@@ -65,6 +65,7 @@ class OrderReadinessSync
         $rows = $c->cmsFetchAll('items & minimums', "
             SELECT i.ItemCode, i.Description, i.Unit, i.Context AS ItemContext,
                    CASE WHEN i.CostingRecipe IS NULL THEN 0 ELSE 1 END AS has_recipe,
+                   i.GLGroup,
                    r.RecipeNumber,
                    ie.MinimumStock
             FROM CMS.dbo.Item i
@@ -84,6 +85,9 @@ class OrderReadinessSync
                 'recipe_number'  => $r['RecipeNumber'] !== null ? (string) $r['RecipeNumber'] : null,
                 'minimum_stock'  => $min,
                 'is_discontinued' => ($min !== null && abs($min - 99.0) < 1e-9) ? 1 : 0,
+                // Wire fees, shipping charges etc.: never inventoried, so
+                // they can never be "short" (Matt, 2026-11-04).
+                'is_service'     => ($r['GLGroup'] ?? '') === 'Services' ? 1 : 0,
                 'last_made'      => null,   // filled in step 6
             ];
         }
@@ -369,7 +373,12 @@ class OrderReadinessSync
 
         $this->materials = [];
         foreach ($mats as $r) {
-            $this->materials[(int) $r['Ordr']][(string) $r['ItemCode']] = [
+            $code = (string) $r['ItemCode'];
+            // Fee pseudo-items riding on tickets are not materials.
+            if (!empty($this->items[$code]['is_service'])) {
+                continue;
+            }
+            $this->materials[(int) $r['Ordr']][$code] = [
                 'qty'  => max(0.0, (float) $r['Remaining']),
                 'unit' => (string) ($r['Unit'] ?? ''),
             ];

@@ -120,7 +120,7 @@
                         <?php if ($s['LocCtx']): ?><span class="tag"><?= e((string) $s['LocCtx']) ?></span><?php endif; ?></td>
                     <td class="text-right tabular"><?= fmt_number((float) $s['Qty'], 2) ?></td>
                     <td class="text-muted"><?= e((string) ($s['Status'] ?? '')) ?></td>
-                    <td class="tabular"><?= e((string) ($s['SublotCode'] ?? '')) ?></td>
+                    <td><?= lot_ctx($s['SublotCode'] ?? '') ?></td>
                     <td class="text-muted"><?= e((string) ($s['SupLot'] ?? '')) ?></td>
                     <td><?= e(fmt_date($s['ReceivedDate'] ?: $s['ManfDate'])) ?></td>
                     <td class="text-muted"><?= e((string) ($s['Supplier'] ?? '')) ?></td>
@@ -185,7 +185,7 @@
             <tbody>
             <?php foreach ($whereUsed as $w): ?>
                 <tr>
-                    <td class="nowrap"><a href="/items/view?code=<?= urlencode((string) $w['ItemCode']) ?>"><strong><?= e((string) $w['ItemCode']) ?></strong></a></td>
+                    <td class="nowrap"><a href="/items/view?code=<?= urlencode((string) $w['ItemCode']) ?>"><?= item_ctx((string) $w['ItemCode']) ?></a></td>
                     <td><?= e((string) ($w['Description'] ?? '')) ?></td>
                     <td class="text-right tabular"><?= rtrim(rtrim(number_format((float) $w['QtyReqd'] * 100, 3, '.', ','), '0'), '.') ?>%</td>
                 </tr>
