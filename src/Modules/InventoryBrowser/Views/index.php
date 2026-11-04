@@ -61,7 +61,7 @@ $qs = fn(array $extra) => '/inventory?' . http_build_query(array_filter($extra +
             <tbody>
             <?php foreach ($rows as $r): ?>
                 <tr>
-                    <td class="nowrap"><strong><?= e($r['item_code']) ?></strong></td>
+                    <td class="nowrap"><?= item_ctx($r['item_code']) ?></td>
                     <td><?= e($r['description']) ?></td>
                     <td class="text-muted"><?= e($r['unit']) ?></td>
                     <?php foreach ($columns as $key => $col): ?>

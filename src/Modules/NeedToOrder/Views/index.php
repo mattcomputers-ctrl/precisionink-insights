@@ -19,7 +19,7 @@ $renderRows = function (array $list) use ($today, $isMin): void {
         $overdue = $r['first_needed'] !== null && $r['first_needed'] < $today;
     ?>
         <tr>
-            <td class="nowrap"><strong><?= e($r['item_code']) ?></strong>
+            <td class="nowrap"><?= item_ctx($r['item_code']) ?>
                 <?php if ((int) $r['has_recipe'] === 1): ?>
                     <div class="tag" title="This item has a recipe — it can also be made in-house instead of bought">can be made</div>
                 <?php endif; ?>

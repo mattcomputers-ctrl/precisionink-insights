@@ -297,6 +297,22 @@ function sync_now_button(): string
     return '<button type="button" class="btn btn-sm sync-now-page" title="Refresh data from CMS now">⟳ Sync now</button>';
 }
 
+/**
+ * An item code with the cross-module right-click menu (Matt, 2026-11-04):
+ * right-click → view active recipe (in-page window), find in Inventory,
+ * coverage by item, Need to Order — entries permission-gated in the
+ * layout's menu config; the markup itself is inert without it.
+ */
+function item_ctx(string $code, ?string $label = null, bool $strong = true): string
+{
+    if ($code === '') {
+        return '';
+    }
+    $text = $label !== null && $label !== '' ? $label : $code;
+    $inner = $strong ? '<strong>' . e($text) . '</strong>' : e($text);
+    return '<span class="item-ctx" data-item="' . e($code) . '" title="Right-click for item options">' . $inner . '</span>';
+}
+
 /* ------------------------------------------------------------------
  *  Number / money formatting
  * ----------------------------------------------------------------*/

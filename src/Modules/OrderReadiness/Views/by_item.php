@@ -41,7 +41,7 @@ require __DIR__ . '/_subnav.php';
             ?>
                 <tr>
                     <td><button type="button" class="btn btn-sm item-expand" data-target="item-allocs-<?= $i ?>">▶</button></td>
-                    <td class="nowrap"><strong><?= e($r['item_code']) ?></strong>
+                    <td class="nowrap"><?= item_ctx($r['item_code']) ?>
                         <?php if ((int) $r['is_discontinued'] === 1): ?><span class="pill pill-danger">DISCONTINUED</span><?php endif; ?>
                     </td>
                     <td><?= e((string) $r['description']) ?></td>

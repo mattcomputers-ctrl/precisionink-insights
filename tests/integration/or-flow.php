@@ -153,6 +153,13 @@ ok(str_contains($frag['body'], 'Needs 10 lb'), 'plain-English reason rendered');
 
 $page = $ship->get('/orders/by-item');
 ok($page['status'] === 200 && str_contains($page['body'], 'A-50'), 'by-item page shows demand');
+// Right-click menu config is permission-gated: shipping has by-item but
+// neither recipes nor inventory nor purchasing.
+ok(str_contains($page['body'], '/orders/by-item?q={code}')
+    && !str_contains($page['body'], 'View active recipe')
+    && !str_contains($page['body'], '/inventory?q={code}')
+    && !str_contains($page['body'], '/need-to-order?q={code}'),
+    'item menu only offers what the user may see');
 $page = $ship->get('/orders/tickets');
 ok($page['status'] === 200 && str_contains($page['body'], '7000') && str_contains($page['body'], 'PRIORITY CO'),
     'tickets page shows the master batch + cut-for hint');

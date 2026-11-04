@@ -101,6 +101,13 @@ echo "== admin sees everything\n";
 $a = new Http($BASE);
 $a->login('invf_admin', 'InvFlow123!');
 $page = $a->get('/inventory');
+// Right-click menu (Matt, 2026-11-04): items carry the ctx markup, and
+// the admin's menu config has the cross-module entries.
+ok(str_contains($page['body'], 'item-ctx') && str_contains($page['body'], 'data-item="SOC0403"'),
+    'item codes carry the right-click menu markup');
+ok(str_contains($page['body'], 'PII_ITEM_MENU') && str_contains($page['body'], 'View active recipe')
+    && str_contains($page['body'], '/orders/by-item?q={code}'),
+    'admin menu config carries the cross-module links');
 ok(str_contains($page['body'], 'Vendor codes') && str_contains($page['body'], 'EM2387-TF'),
     'admin sees vendor codes (one line per code)');
 ok(str_contains($page['body'], 'SR9020'), 'second vendor code listed');

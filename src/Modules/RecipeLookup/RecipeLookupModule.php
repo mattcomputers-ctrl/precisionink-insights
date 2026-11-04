@@ -44,6 +44,7 @@ class RecipeLookupModule extends Module
         $router->group('/recipes', function (Router $r) use ($c) {
             $r->get('',              $c . '@index');
             $r->get('/recipe/{id}',  $c . '@recipe');   // modal fragment
+            $r->get('/active',       $c . '@active');   // active recipe by ?code= (right-click menu)
         });
     }
 }

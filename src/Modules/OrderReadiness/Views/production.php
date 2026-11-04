@@ -54,7 +54,7 @@ $sevPill = fn(string $s) => match ($s) {
                 $skipActive = $r['mark'] === 'skip' && ($r['skip_until'] === null || $r['skip_until'] >= date('Y-m-d'));
             ?>
                 <tr style="<?= $skipActive ? 'opacity:0.55;' : '' ?>">
-                    <td class="nowrap"><strong><?= e($r['item_code']) ?></strong>
+                    <td class="nowrap"><?= item_ctx($r['item_code']) ?>
                         <?php if (($badges[$r['item_code']] ?? '') === 'reactivated'): ?>
                             <span class="pill pill-info" title="Recently taken off discontinued (minimum moved off 99)">Reactivated</span>
                         <?php elseif (($badges[$r['item_code']] ?? '') === 'newly_discontinued'): ?>

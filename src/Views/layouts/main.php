@@ -131,6 +131,36 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
         <?= $bodyContent ?? '' ?>
     </main>
 
+    <!-- In-page recipe window + item right-click menu (app.js) -->
+    <div id="recipe-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <div class="modal-head">
+                <button type="button" class="btn btn-sm" id="recipe-back" style="display:none;">← Back</button>
+                <span style="flex:1;"></span>
+                <button type="button" class="btn btn-sm" id="recipe-close">✕ Close</button>
+            </div>
+            <div class="modal-body" id="recipe-body"></div>
+        </div>
+    </div>
+    <?php
+    // Cross-module links for the item right-click menu — permission-gated
+    // server-side (hidden modules stay hidden, SPEC §2.1).
+    $itemMenu = [];
+    if (user_can('recipes.view') && user_can_see_module('recipes')) {
+        $itemMenu[] = ['label' => '⚗ View active recipe', 'action' => 'recipe'];
+        $itemMenu[] = ['label' => '🔍 Find in Recipes', 'href' => '/recipes?q={code}'];
+    }
+    if (user_can('inventory.view') && user_can_see_module('inventory')) {
+        $itemMenu[] = ['label' => '🗃 Find in Inventory', 'href' => '/inventory?q={code}'];
+    }
+    if (user_can('orders.items_view') && user_can_see_module('order_readiness')) {
+        $itemMenu[] = ['label' => '📦 Coverage by item', 'href' => '/orders/by-item?q={code}'];
+    }
+    if (user_can('purchasing.view') && user_can_see_module('need_to_order')) {
+        $itemMenu[] = ['label' => '🛒 Need to Order', 'href' => '/need-to-order?q={code}'];
+    }
+    ?>
+    <script>window.PII_ITEM_MENU = <?= json_encode($itemMenu, JSON_UNESCAPED_SLASHES) ?>;</script>
     <script src="<?= e(asset_url('js/app.js')) ?>"></script>
 </body>
 </html>

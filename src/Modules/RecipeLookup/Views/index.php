@@ -51,7 +51,7 @@ $recipeChip = function (array $r, bool $active): string {
                 <tbody>
                 <?php foreach ($items as $it): ?>
                     <tr>
-                        <td class="nowrap"><strong><?= e($it['item_code']) ?></strong>
+                        <td class="nowrap"><?= item_ctx($it['item_code']) ?>
                             <?php if ($it['context'] === 'PP'): ?><div class="tag">pack</div><?php endif; ?>
                         </td>
                         <td><?= e($it['description']) ?></td>
@@ -109,58 +109,5 @@ $recipeChip = function (array $r, bool $active): string {
     <?php endif; ?>
 </div>
 
-<!-- The in-page recipe window -->
-<div id="recipe-modal" class="modal-overlay" style="display:none;">
-    <div class="modal-box">
-        <div class="modal-head">
-            <button type="button" class="btn btn-sm" id="recipe-back" style="display:none;">← Back</button>
-            <span style="flex:1;"></span>
-            <button type="button" class="btn btn-sm" id="recipe-close">✕ Close</button>
-        </div>
-        <div class="modal-body" id="recipe-body"></div>
-    </div>
-</div>
+<!-- The in-page recipe window + .recipe-open handling live in the layout/app.js -->
 
-<script>
-(function () {
-    'use strict';
-    const modal = document.getElementById('recipe-modal');
-    const body = document.getElementById('recipe-body');
-    const backBtn = document.getElementById('recipe-back');
-    const stack = [];
-
-    async function load(id, push) {
-        body.innerHTML = '<div style="padding:2rem;text-align:center;"><span class="spinner"></span> Loading recipe…</div>';
-        modal.style.display = '';
-        try {
-            const resp = await fetch('/recipes/recipe/' + id, { headers: { 'Accept': 'text/html' } });
-            body.innerHTML = await resp.text();
-        } catch (err) {
-            body.innerHTML = '<div class="alert alert-danger">Could not load the recipe: ' + err.message + '</div>';
-        }
-        if (push) stack.push(id);
-        backBtn.style.display = stack.length > 1 ? '' : 'none';
-        body.scrollTop = 0;
-    }
-
-    document.addEventListener('click', (e) => {
-        const btn = e.target.closest('.recipe-open');
-        if (btn) { load(btn.dataset.recipe, true); return; }
-        if (e.target.closest('#recipe-back')) {
-            stack.pop();
-            if (stack.length > 0) load(stack[stack.length - 1], false);
-            return;
-        }
-        if (e.target.closest('#recipe-close') || e.target === modal) {
-            modal.style.display = 'none';
-            stack.length = 0;
-        }
-    });
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal.style.display !== 'none') {
-            modal.style.display = 'none';
-            stack.length = 0;
-        }
-    });
-})();
-</script>

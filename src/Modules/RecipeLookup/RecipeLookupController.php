@@ -56,11 +56,62 @@ class RecipeLookupController
     /** Modal fragment: one recipe as a 100% formula + procedure. */
     public function recipe(string $id): void
     {
-        $id = (int) $id;
-        try {
-            $cms = CMSDatabase::getInstance();
+        $this->guarded(fn() => $this->renderRecipe((int) $id));
+    }
 
-            $head = $cms->fetch("
+    /**
+     * Modal fragment: the ACTIVE recipe for an item CODE (alias-aware) —
+     * the right-click menu's "View active recipe" (Matt, 2026-11-04).
+     */
+    public function active(): void
+    {
+        $code = trim((string) ($_GET['code'] ?? ''));
+        if ($code === '') {
+            http_response_code(400);
+            echo '<div class="alert alert-danger">No item code given.</div>';
+            return;
+        }
+        $this->guarded(function () use ($code) {
+            // An alias resolves to its inventory item's recipe.
+            $row = CMSDatabase::getInstance()->fetch("
+                SELECT COALESCE(parent.CostingRecipe, i.CostingRecipe) AS RecipeId,
+                       COALESCE(parent.ItemCode, i.ItemCode) AS Code
+                FROM CMS.dbo.Item i
+                LEFT JOIN CMS.dbo.Item parent ON parent.Item = i.ReplacedBy
+                WHERE i.ItemCode = ?", [$code]);
+            if (!$row) {
+                http_response_code(404);
+                echo '<div class="alert alert-danger">Item ' . e($code) . ' not found in CMS.</div>';
+                return;
+            }
+            if ($row['RecipeId'] === null) {
+                echo '<div class="alert alert-info"><strong>' . e((string) $row['Code'])
+                    . '</strong> has no active recipe in CMS — it is a purchased item.</div>';
+                return;
+            }
+            $this->renderRecipe((int) $row['RecipeId']);
+        });
+    }
+
+    /** Shared CMS error handling for modal fragments. */
+    private function guarded(callable $fn): void
+    {
+        try {
+            $fn();
+        } catch (CMSUnavailableException $e) {
+            http_response_code(503);
+            echo '<div class="alert alert-info">' . e($e->friendlyMessage()) . '</div>';
+        } catch (\Throwable $e) {
+            http_response_code(500);
+            echo '<div class="alert alert-danger">CMS query failed: ' . e($e->getMessage()) . '</div>';
+        }
+    }
+
+    private function renderRecipe(int $id): void
+    {
+        $cms = CMSDatabase::getInstance();
+
+        $head = $cms->fetch("
                 SELECT r.Recipe, r.RecipeNumber, r.Version, r.Inactive, r.Comment,
                        CONVERT(VARCHAR(10), r.DateCreated, 23) AS DateCreated,
                        CONVERT(VARCHAR(10), r.DateUpdated, 23) AS DateUpdated,
@@ -95,14 +146,7 @@ class RecipeLookupController
                 'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
             ]);
 
-            view('recipes::_recipe', ['head' => $head, 'lines' => $lines]);
-        } catch (CMSUnavailableException $e) {
-            http_response_code(503);
-            echo '<div class="alert alert-info">' . e($e->friendlyMessage()) . '</div>';
-        } catch (\Throwable $e) {
-            http_response_code(500);
-            echo '<div class="alert alert-danger">CMS query failed: ' . e($e->getMessage()) . '</div>';
-        }
+        view('recipes::_recipe', ['head' => $head, 'lines' => $lines]);
     }
 
     /**

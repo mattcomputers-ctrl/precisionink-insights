@@ -48,7 +48,7 @@ $today = date('Y-m-d');
                 $overdue = $m['earliest'] !== null && $m['earliest'] < $today;
             ?>
                 <tr>
-                    <td class="nowrap"><strong><?= e($m['item_code']) ?></strong></td>
+                    <td class="nowrap"><?= item_ctx($m['item_code']) ?></td>
                     <td><?= e((string) $m['description']) ?></td>
                     <td class="text-right tabular text-danger"><strong><?= fmt_number((float) $m['short'], 1) ?></strong> <?= e($m['unit']) ?></td>
                     <td class="text-right tabular"><?= fmt_number((float) $m['on_hand'], 1) ?></td>

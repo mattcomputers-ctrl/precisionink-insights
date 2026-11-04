@@ -126,7 +126,7 @@ $nShort = count(array_filter($batches, $batchShort));
                             <span class="pill pill-active" title="Everything this batch consumes is on hand">✔ On hand</span>
                         <?php endif; ?>
                     </td>
-                    <td class="nowrap"><?= e($m['item_code'] ?? ($g['packs'][0]['bulk_code'] ?? '—')) ?></td>
+                    <td class="nowrap"><?php $blk = $m['item_code'] ?? ($g['packs'][0]['bulk_code'] ?? null); echo $blk !== null ? item_ctx($blk, null, false) : '—'; ?></td>
                     <td><?= e((string) ($m['description'] ?? ($g['packs'][0]['description'] ?? ''))) ?></td>
                     <td class="text-right tabular"><?= $m !== null ? fmt_number((float) $m['qty'], 1) . ' ' . e($m['unit']) : '—' ?></td>
                     <td class="<?= $overdue ? 'text-danger' : '' ?>"><?= e(fmt_date($g['date_required'])) ?><?= $overdue ? ' ⚠' : '' ?></td>
@@ -136,7 +136,7 @@ $nShort = count(array_filter($batches, $batchShort));
                         <?php else: ?>
                             <?php foreach ($g['packs'] as $p): ?>
                                 <div class="nowrap" title="Packaging order <?= (int) $p['ordr'] ?>">
-                                    <?= $packGlyph($p) ?> <strong><?= e($p['item_code']) ?></strong>
+                                    <?= $packGlyph($p) ?> <?= item_ctx($p['item_code']) ?>
                                     <span class="text-muted"><?= fmt_number((float) $p['qty'], 1) ?> <?= e($p['unit']) ?></span>
                                     <?php if ($stuck($p)): ?><span class="pill pill-danger">⚠ stuck in BAT</span><?php endif; ?>
                                 </div>

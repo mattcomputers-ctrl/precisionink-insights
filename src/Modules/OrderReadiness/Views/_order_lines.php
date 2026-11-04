@@ -55,7 +55,7 @@ $pill = function (?string $s): string {
         <tbody>
         <?php foreach ($lines as $l): ?>
             <tr>
-                <td class="nowrap"><strong><?= e($l['alias_code'] ?: $l['item_code']) ?></strong>
+                <td class="nowrap"><?= item_ctx($l['item_code'], $l['alias_code'] ?: null) ?>
                     <?php if ($l['alias_code'] && $l['alias_code'] !== $l['item_code']): ?>
                         <div class="tag" title="Inventory item"><?= e($l['item_code']) ?></div>
                     <?php endif; ?>

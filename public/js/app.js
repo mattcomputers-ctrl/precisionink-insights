@@ -315,4 +315,91 @@
         window.location.href = url.toString();
     });
 
+    /* ── In-page recipe window (any page; markup in the layout) ── */
+    const recipeModal = document.getElementById('recipe-modal');
+    if (recipeModal) {
+        const body = document.getElementById('recipe-body');
+        const backBtn = document.getElementById('recipe-back');
+        const stack = [];
+
+        async function loadRecipe(url, push) {
+            body.innerHTML = '<div style="padding:2rem;text-align:center;"><span class="spinner"></span> Loading recipe…</div>';
+            recipeModal.style.display = '';
+            try {
+                const resp = await fetch(url, { headers: { 'Accept': 'text/html' } });
+                body.innerHTML = await resp.text();
+            } catch (err) {
+                body.innerHTML = '<div class="alert alert-danger">Could not load the recipe: ' + err.message + '</div>';
+            }
+            if (push) stack.push(url);
+            backBtn.style.display = stack.length > 1 ? '' : 'none';
+            body.scrollTop = 0;
+        }
+        window.PII.openRecipe = (url) => loadRecipe(url, true);
+
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.recipe-open');
+            if (btn) { loadRecipe('/recipes/recipe/' + btn.dataset.recipe, true); return; }
+            if (e.target.closest('#recipe-back')) {
+                stack.pop();
+                if (stack.length > 0) loadRecipe(stack[stack.length - 1], false);
+                return;
+            }
+            if (e.target.closest('#recipe-close') || e.target === recipeModal) {
+                recipeModal.style.display = 'none';
+                stack.length = 0;
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && recipeModal.style.display !== 'none') {
+                recipeModal.style.display = 'none';
+                stack.length = 0;
+            }
+        });
+    }
+
+    /* ── Item right-click menu: cross-links between modules ─────── */
+    const itemMenu = window.PII_ITEM_MENU || [];
+    if (itemMenu.length > 0) {
+        let menuEl = null;
+        const closeMenu = () => { if (menuEl) { menuEl.remove(); menuEl = null; } };
+
+        document.addEventListener('contextmenu', (e) => {
+            const target = e.target.closest('.item-ctx');
+            if (!target) { closeMenu(); return; }
+            e.preventDefault();
+            closeMenu();
+            const code = target.dataset.item;
+
+            menuEl = document.createElement('div');
+            menuEl.className = 'ctx-menu';
+            const title = document.createElement('div');
+            title.className = 'ctx-menu-title';
+            title.textContent = code;
+            menuEl.appendChild(title);
+            itemMenu.forEach((entry) => {
+                const a = document.createElement(entry.href ? 'a' : 'button');
+                a.className = 'ctx-menu-item';
+                a.textContent = entry.label;
+                if (entry.href) {
+                    a.href = entry.href.replace('{code}', encodeURIComponent(code));
+                } else if (entry.action === 'recipe') {
+                    a.type = 'button';
+                    a.addEventListener('click', () => {
+                        closeMenu();
+                        window.PII.openRecipe('/recipes/active?code=' + encodeURIComponent(code));
+                    });
+                }
+                menuEl.appendChild(a);
+            });
+            document.body.appendChild(menuEl);
+            const mw = menuEl.offsetWidth, mh = menuEl.offsetHeight;
+            menuEl.style.left = Math.min(e.clientX, window.innerWidth - mw - 8) + 'px';
+            menuEl.style.top = Math.min(e.clientY, window.innerHeight - mh - 8) + 'px';
+        });
+        document.addEventListener('click', closeMenu);
+        document.addEventListener('scroll', closeMenu, true);
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+    }
+
 })();

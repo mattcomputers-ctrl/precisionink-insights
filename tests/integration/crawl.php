@@ -114,6 +114,9 @@ $routes = [
     ['/need-to-order/export',                  200, 404, 404, 404, 404, 404, 404],
     ['/recipes',                               200, 404, 404, 404, 404, 404, 404],
     ['/recipes?q=E1202',                       200, 404, 404, 404, 404, 404, 404],
+    // CMS is unreachable in this environment: the fragment answers 500
+    // with a friendly alert (not a stack trace) for permitted users.
+    ['/recipes/active?code=TEST',              500, 404, 404, 404, 404, 404, 404],
     ['/admin/users',                           200, 404, 404, 404, 404, 404, 404],
     ['/admin/groups',                          200, 404, 404, 404, 404, 404, 404],
     ['/admin/settings',                        200, 404, 404, 404, 404, 404, 404],

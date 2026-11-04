@@ -237,6 +237,15 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     ticket requirements, and new batches carry containers per lb through
     the pack recipe.
 
+46. **Item right-click menu (Matt, 2026-11-04):** item codes across the
+    modules (Inventory, Need to Order, by-item, tickets, production plan,
+    short materials, order drill-down, Recipes) carry a context menu:
+    View active recipe (opens the in-page recipe window from ANY page via
+    /recipes/active?code=, alias-aware), Find in Recipes / Inventory,
+    Coverage by item, Need to Order. Entries are permission-gated
+    server-side in the layout (hidden modules stay hidden); the recipe
+    window + handlers moved from the Recipes view into the layout/app.js.
+    A purchased item answers with a friendly "no active recipe" note.
 45. **Item & Recipe Lookup module (Matt, 2026-11-04):** search by item
     number/description, alias code/description, or recipe number; each
     item lists every recipe that PRODUCES it (matched via the recipe's PK
