@@ -1,10 +1,21 @@
 <?php
 /**
- * One batch ticket: header, batch sheet (formula + procedure + issued),
- * produced lots, their QC results, linked tickets (live CMS).
- * @var int $ordr  @var ?array $head  @var array $lines  @var array $lots
- * @var array $qc  @var array $linked  @var ?string $error  @var ?string $asOf
+ * One batch ticket, packs INSIDE it (Matt, 2026-11-04): header, packaging
+ * section (expected lb per pack), batch sheet (expected vs consumed),
+ * yield (bulk + each pack), produced lots & QC. Live CMS.
+ * @var int $ordr  @var ?array $head  @var array $lines  @var array $packs
+ * @var array $lots  @var array $qc  @var ?float $bulkActual
+ * @var ?string $error  @var ?string $asOf
  */
+$statusPill = fn(string $s): string => match ($s) {
+    'RLS' => '<span class="pill pill-active">Released</span>',
+    'NST' => '<span class="pill">Not started</span>',
+    'BAT' => '<span class="pill pill-info">Closing out</span>',
+    'CMP' => '<span class="pill pill-info">Completed</span>',
+    'CLS' => '<span class="pill">Closed</span>',
+    default => '<span class="pill">' . e($s) . '</span>',
+};
+$done = in_array($head['Status'] ?? '', ['CMP', 'CLS', 'BAT'], true);
 ?>
 <div class="toolbar" style="margin-bottom:1rem;">
     <a href="/batch-tickets" class="btn btn-sm">← Batch Tickets</a>
@@ -21,19 +32,12 @@
         <div>
             <h2 class="card-title">
                 <?= e($head['Context'] === 'MFBA' ? 'Batch' : 'Packaging') ?> ticket <?= (int) $ordr ?>
-                <?php echo match ($head['Status']) {
-                    'RLS' => '<span class="pill pill-active">Released</span>',
-                    'NST' => '<span class="pill">Not started</span>',
-                    'BAT' => '<span class="pill pill-info">Closing out</span>',
-                    'CMP' => '<span class="pill pill-info">Completed</span>',
-                    'CLS' => '<span class="pill">Closed</span>',
-                    default => '<span class="pill">' . e((string) $head['Status']) . '</span>',
-                }; ?>
+                <?= $statusPill((string) $head['Status']) ?>
             </h2>
             <div class="card-subtitle">
                 Makes <?= item_ctx((string) $head['ItemCode']) ?>
                 <?= $head['Description'] ? '— ' . e((string) $head['Description']) : '' ?>
-                · <?= fmt_number((float) $head['Qty'], 1) ?> <?= e((string) $head['Unit']) ?>
+                · <?= fmt_number((float) $head['Qty'], 1) ?> <?= e((string) $head['Unit']) ?> planned
                 <br>
                 <?php if ($head['DateRequired']): ?>required <?= e(fmt_date($head['DateRequired'])) ?><?php endif; ?>
                 <?php if ($head['DateReleased']): ?> · released <?= e(fmt_date($head['DateReleased'])) ?><?php endif; ?>
@@ -45,23 +49,49 @@
     <?php if (!empty($head['Comment'])): ?>
         <div class="alert alert-info" style="white-space:pre-wrap;"><?= e((string) $head['Comment']) ?></div>
     <?php endif; ?>
+</div>
 
-    <?php if ($linked !== []): ?>
-        <div style="margin-bottom:0.75rem;font-size:0.9rem;">
-            <?php foreach ($linked as $ln): ?>
-                <?php if ((int) $ln['DemandOrdr'] === $ordr): ?>
-                    <div>Runs off batch <a href="/batch-tickets/<?= (int) $ln['SupplyOrdr'] ?>"><strong><?= (int) $ln['SupplyOrdr'] ?></strong></a>
-                        <?php if ($ln['CustomerCode']): ?><span class="text-muted">· cut for <?= e((string) $ln['CustomerCode']) ?></span><?php endif; ?></div>
-                <?php else: ?>
-                    <div>Packaging run: <a href="/batch-tickets/<?= (int) $ln['DemandOrdr'] ?>"><strong><?= (int) $ln['DemandOrdr'] ?></strong></a>
-                        <?php if ($ln['MakeItemCode']): ?><span class="text-muted">(<?= e((string) $ln['MakeItemCode']) ?>)</span><?php endif; ?>
-                        <?php if ($ln['CustomerCode']): ?><span class="text-muted">· cut for <?= e((string) $ln['CustomerCode']) ?></span><?php endif; ?></div>
-                <?php endif; ?>
+<?php if ($packs !== []): ?>
+<div class="card">
+    <h2 class="card-title">Packaging</h2>
+    <div class="table-scroll">
+        <table class="table">
+            <thead>
+                <tr><th>Pack</th><th>Description</th><th>Status</th>
+                    <th class="text-right">Expected</th><th class="text-right">Packed</th>
+                    <th>Containers &amp; materials</th><th>Run</th></tr>
+            </thead>
+            <tbody>
+            <?php foreach ($packs as $p): ?>
+                <tr>
+                    <td class="nowrap"><?= item_ctx((string) $p['ItemCode']) ?></td>
+                    <td><?= e((string) ($p['Description'] ?? '')) ?></td>
+                    <td class="nowrap"><?= $statusPill((string) $p['Status']) ?></td>
+                    <td class="text-right tabular"><strong><?= fmt_number((float) $p['Expected'], 1) ?></strong> <?= e((string) $p['Unit']) ?></td>
+                    <td class="text-right tabular">
+                        <?= $p['Packed'] !== null ? '<strong>' . fmt_number((float) $p['Packed'], 1) . '</strong> ' . e((string) $p['Unit']) : '<span class="text-muted">—</span>' ?>
+                    </td>
+                    <td style="font-size:0.85rem;" class="text-muted">
+                        <?php foreach ($p['materials'] as $m): ?>
+                            <?php if ($m['ItemCode'] === $head['ItemCode']) continue;   // the bulk itself ?>
+                            <div class="nowrap">
+                                <?= e((string) $m['ItemCode']) ?>:
+                                <?= fmt_number((float) $m['QtyReqd'], 2) ?> <?= e((string) $m['Unit']) ?> expected<?=
+                                    $m['QtyUsed'] !== null ? ', ' . fmt_number((float) $m['QtyUsed'], 2) . ' used' : '' ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </td>
+                    <td class="text-muted" title="Internal packaging order number">pack <?= (int) $p['Ordr'] ?></td>
+                </tr>
             <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+<?php endif; ?>
 
-    <h3 style="margin:0.5rem 0 0.4rem;">Batch sheet</h3>
+<div class="card">
+    <h2 class="card-title"><?= $done ? 'Materials — expected vs consumed' : 'Batch sheet' ?></h2>
     <?php if ($lines === []): ?>
         <div class="empty-state"><span class="empty-icon">📄</span>No lines on this ticket.</div>
     <?php else: ?>
@@ -70,7 +100,7 @@
         <table class="table">
             <thead>
                 <tr><th style="width:80px;" class="text-right">%</th><th>Ingredient / step</th><th>Description</th>
-                    <th class="text-right">Required</th><th class="text-right">Issued</th></tr>
+                    <th class="text-right">Expected</th><th class="text-right">Consumed</th></tr>
             </thead>
             <tbody>
             <?php foreach ($lines as $l): ?>
@@ -80,13 +110,14 @@
                         <td colspan="4" style="font-style:italic;"><?= e((string) ($l['InstrText'] ?? '')) ?></td>
                     </tr>
                 <?php else: ?>
+                    <?php $off = $l['QtyUsed'] !== null && $l['QtyReqd'] !== null
+                        && abs((float) $l['QtyUsed'] - (float) $l['QtyReqd']) > 0.005; ?>
                     <tr>
                         <td class="text-right tabular"><?= $l['Percent'] !== null ? rtrim(rtrim(number_format((float) $l['Percent'] * 100, 3, '.', ','), '0'), '.') : '' ?></td>
                         <td class="nowrap"><?= item_ctx((string) ($l['ItemCode'] ?? '')) ?></td>
                         <td><?= e((string) ($l['ItemDescription'] ?? '')) ?></td>
                         <td class="text-right tabular"><?= $l['QtyReqd'] !== null ? fmt_number((float) $l['QtyReqd'], 2) . ' ' . e((string) $l['Unit']) : '—' ?></td>
-                        <td class="text-right tabular <?= $l['QtyUsed'] !== null && $l['QtyReqd'] !== null && abs((float) $l['QtyUsed'] - (float) $l['QtyReqd']) > 0.005 ? 'text-danger' : '' ?>"
-                            <?= $l['QtyUsed'] !== null && $l['QtyReqd'] !== null && abs((float) $l['QtyUsed'] - (float) $l['QtyReqd']) > 0.005 ? 'title="Issued differs from required"' : '' ?>>
+                        <td class="text-right tabular <?= $off ? 'text-danger' : '' ?>" <?= $off ? 'title="Consumed differs from expected"' : '' ?>>
                             <?= $l['QtyUsed'] !== null ? fmt_number((float) $l['QtyUsed'], 2) : '<span class="text-muted">—</span>' ?>
                         </td>
                     </tr>
@@ -97,6 +128,50 @@
     </div>
     <?php endif; ?>
 </div>
+
+<?php if ($done || $bulkActual !== null || array_filter($packs, fn($p) => $p['Packed'] !== null)): ?>
+<div class="card">
+    <h2 class="card-title">Yield</h2>
+    <div class="table-scroll">
+        <table class="table">
+            <thead>
+                <tr><th></th><th>Item</th><th class="text-right">Planned</th>
+                    <th class="text-right">Actual</th><th class="text-right">Yield</th></tr>
+            </thead>
+            <tbody>
+                <?php if ($head['Context'] === 'MFBA'): ?>
+                <tr>
+                    <td><span class="tag">Bulk</span></td>
+                    <td class="nowrap"><?= item_ctx((string) $head['ItemCode']) ?></td>
+                    <td class="text-right tabular"><?= fmt_number((float) $head['Qty'], 1) ?> <?= e((string) $head['Unit']) ?></td>
+                    <td class="text-right tabular">
+                        <?= $bulkActual !== null ? '<strong>' . fmt_number($bulkActual, 1) . '</strong> ' . e((string) $head['Unit']) : '<span class="text-muted">—</span>' ?>
+                    </td>
+                    <td class="text-right tabular">
+                        <?= $bulkActual !== null && (float) $head['Qty'] > 0
+                            ? fmt_pct($bulkActual / (float) $head['Qty'] * 100, 1) : '—' ?>
+                    </td>
+                </tr>
+                <?php endif; ?>
+                <?php foreach ($packs as $p): ?>
+                <tr>
+                    <td><span class="tag">Pack</span></td>
+                    <td class="nowrap"><?= item_ctx((string) $p['ItemCode']) ?></td>
+                    <td class="text-right tabular"><?= fmt_number((float) $p['Expected'], 1) ?> <?= e((string) $p['Unit']) ?></td>
+                    <td class="text-right tabular">
+                        <?= $p['Packed'] !== null ? '<strong>' . fmt_number((float) $p['Packed'], 1) . '</strong> ' . e((string) $p['Unit']) : '<span class="text-muted">— not packed yet</span>' ?>
+                    </td>
+                    <td class="text-right tabular">
+                        <?= $p['Packed'] !== null && (float) $p['Expected'] > 0
+                            ? fmt_pct((float) $p['Packed'] / (float) $p['Expected'] * 100, 1) : '—' ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="card">
     <h2 class="card-title">Produced lots &amp; QC</h2>
@@ -113,6 +188,7 @@
             <h3 style="margin:0.75rem 0 0.3rem;">Lot <?= e((string) $lot['Lot']) ?>
                 <span class="text-muted" style="font-weight:normal;font-size:0.85rem;">
                     <?= e((string) ($lot['ItemCode'] ?? '')) ?><?= $lot['ManfDate'] ? ' · made ' . e(fmt_date($lot['ManfDate'])) : '' ?>
+                    <?= (int) $lot['MadeOn'] !== (int) $ordr ? ' · pack run ' . (int) $lot['MadeOn'] : '' ?>
                 </span>
             </h3>
             <?php $results = $qcByLot[(string) $lot['Lot']] ?? []; ?>
@@ -126,7 +202,7 @@
                         <?php foreach ($results as $r): ?>
                             <tr>
                                 <td><?= e((string) $r['TestName']) ?></td>
-                                <td class="tabular"><?= e((string) ($r['Result'] ?? '')) ?: '<span class="text-muted">—</span>' ?></td>
+                                <td class="tabular"><?= $r['Result'] !== null && $r['Result'] !== '' ? e((string) $r['Result']) : '<span class="text-muted">—</span>' ?></td>
                                 <td><?= ((int) $r['Passed']) === 1 ? '<span class="pill pill-active">✔ pass</span>' : '<span class="pill pill-danger">✖ fail</span>' ?></td>
                                 <td><?= e(fmt_date($r['TestedTime'], 'M j, g:i A')) ?></td>
                                 <td class="text-muted"><?= e((string) ($r['TestedBy'] ?? '')) ?></td>

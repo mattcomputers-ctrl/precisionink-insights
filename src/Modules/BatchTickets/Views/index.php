@@ -19,7 +19,8 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
         <div>
             <h2 class="card-title">Batch Tickets</h2>
             <div class="card-subtitle">
-                Every ticket ever cut, live from CMS. For "what's open and can it run", use
+                Every batch ever cut, live from CMS — one line per bulk ticket, its packaging runs
+                live inside it. For "what's open and can it run", use
                 <?php if (user_can('orders.tickets_view')): ?><a href="/orders/tickets">Order Readiness → Batch tickets</a><?php else: ?>Order Readiness<?php endif; ?>.
             </div>
         </div>
@@ -49,7 +50,7 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
                 <thead>
                     <tr>
                         <th>Ticket #</th><th>Type</th><th>Status</th><th>Makes</th><th>Description</th>
-                        <th class="text-right">Qty</th><th>Required</th><th>Completed</th><th>Cut for</th>
+                        <th class="text-right">Qty</th><th class="text-right">Packs</th><th>Required</th><th>Completed</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -57,18 +58,15 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
                     <tr>
                         <td class="nowrap">
                             <a href="/batch-tickets/<?= (int) $t['Ordr'] ?>"><strong><?= (int) $t['Ordr'] ?></strong></a>
-                            <?php if ($t['BatchOrdr'] !== null && (int) $t['BatchOrdr'] !== (int) $t['Ordr']): ?>
-                                <a class="tag" href="/batch-tickets/<?= (int) $t['BatchOrdr'] ?>" title="The bulk batch this pack runs off">batch <?= (int) $t['BatchOrdr'] ?></a>
-                            <?php endif; ?>
                         </td>
                         <td><span class="tag"><?= e($t['Context'] === 'MFBA' ? 'Bulk' : 'Packaging') ?></span></td>
                         <td class="nowrap"><?= $pill((string) $t['Status']) ?></td>
                         <td class="nowrap"><?= item_ctx((string) $t['ItemCode']) ?></td>
                         <td><?= e((string) ($t['Description'] ?? '')) ?></td>
                         <td class="text-right tabular"><?= $t['Qty'] !== null ? fmt_number((float) $t['Qty'], 1) . ' ' . e((string) $t['Unit']) : '—' ?></td>
+                        <td class="text-right tabular"><?= (int) ($t['PackCount'] ?? 0) > 0 ? (int) $t['PackCount'] : '<span class="text-muted">—</span>' ?></td>
                         <td><?= e(fmt_date($t['DateRequired'])) ?></td>
                         <td><?= e(fmt_date($t['DateCompleted'])) ?></td>
-                        <td class="text-muted"><?= e((string) ($t['CustomerCode'] ?? '')) ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

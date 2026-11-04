@@ -266,8 +266,16 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     (purchasing.view) - lines from the PurchaseOrderDetail view with
     TheirCode and receipts via ChangeSetReceipt -> ChangeSet (date) ->
     Sublot/Lot; Batch Tickets (orders.tickets_view) - full history with
-    the batch sheet (UI+INSTR OrdDetail rows in ExecOrder, required vs
-    issued), produced lots (Lot.OrdDetail -> PK line) and their QC;
+    the batch sheet (UI+INSTR OrdDetail rows in ExecOrder, expected vs
+    consumed), produced lots (Lot.OrdDetail -> PK line) and their QC.
+    Packs live INSIDE their bulk ticket's page (Matt, 2026-11-04): opening
+    a pack redirects to its bulk; a Packaging section shows expected vs
+    packed pounds per pack plus its containers, and a Yield section shows
+    planned vs actual for the bulk and each pack. The durable bulk<->pack
+    link is OrdDetailCommit (pack bulk-line commits against the bulk PK
+    line; BatchSheetDemand only covers OPEN chains). Actuals: pack PK
+    QtyUsed = pounds packed; bulk actual = positive PCKAGE/CMNGL movement
+    qty on the produced lot's sublots (what left the batch vessel);
     QC Results (qc.view) - the result chain is LocationSampleTest ->
     Location (SMP sample container) -> Inventory -> Sublot -> Lot ->
     Lot.OrdDetail -> ticket, with specs from ItemTest; Items (items.view)
