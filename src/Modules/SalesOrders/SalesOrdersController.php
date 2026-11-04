@@ -59,7 +59,12 @@ class SalesOrdersController
                 LEFT JOIN CMS.dbo.Entities st ON st.Entity = o.ShipTo
                 LEFT JOIN CMS.dbo.Entities sv ON sv.Entity = o.ShipVia
                 WHERE o.Context = 'SH' AND {$where}
-                ORDER BY o.Ordr DESC", $params);
+                ORDER BY " . ($tab === 'completed'
+                    // Most recently SHIPPED first (DateCompleted = the final
+                    // shipment) — order numbers alone bury old orders that
+                    // shipped late (Matt, 2026-11-04).
+                    ? 'o.DateCompleted DESC, o.Ordr DESC'
+                    : 'o.Ordr DESC'), $params);
 
             $truncated = count($orders) > self::MAX_ROWS;
             $orders = array_slice($orders, 0, self::MAX_ROWS);
