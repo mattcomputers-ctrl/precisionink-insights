@@ -88,22 +88,79 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
         <a href="/" class="<?= $uri === '/' ? 'active' : '' ?>">
             <span class="nav-icon">⌂</span><span class="nav-label">Home</span>
         </a>
-        <?php foreach ($modules as $module):
-            $key  = $module->key();
+        <?php
+        // Hierarchical menu (Matt, 2026-11-04): Sales and Purchasing
+        // sections; QC under Batch Tickets (COA under QC); Recipes under
+        // Items. A module someone may see always shows, parent or not.
+        $byKey = [];
+        foreach ($modules as $m) {
+            $byKey[$m->key()] = $m;
+        }
+        $navLink = function (string $key, int $level = 0) use ($byKey, $uri, $active): void {
+            $module = $byKey[$key] ?? null;
+            if ($module === null) {
+                return;   // hidden or not granted for this user
+            }
             $base = $module->basePath();
             $isActive = ($active === $key) || str_starts_with($uri, $base);
-        ?>
-            <a href="<?= e($base) ?>" class="<?= $isActive ? 'active' : '' ?>" title="<?= e($module->description()) ?>">
+            $cls = trim(($isActive ? 'active ' : '') . ($level === 1 ? 'nav-sub' : ($level >= 2 ? 'nav-sub2' : '')));
+            ?>
+            <a href="<?= e($base) ?>" class="<?= e($cls) ?>" title="<?= e($module->description()) ?>">
                 <span class="nav-icon"><?= $module->icon() !== '' ? $module->icon() : '▪' ?></span>
                 <span class="nav-label"><?= e($module->name()) ?></span>
             </a>
-            <?php if ($key === 'qc' && user_can('qc.coa')): ?>
-                <a href="/qc/coa" class="<?= str_starts_with($uri, '/qc/coa') ? 'active' : '' ?>"
+            <?php
+        };
+        $sectionVisible = fn(array $keys): bool => (bool) array_filter($keys, fn($k) => isset($byKey[$k]));
+        ?>
+
+        <?php if ($sectionVisible(['sales_orders', 'order_readiness', 'margin_watchdog'])): ?>
+            <div class="nav-section">Sales</div>
+            <?php $navLink('sales_orders'); $navLink('order_readiness'); $navLink('margin_watchdog'); ?>
+        <?php endif; ?>
+
+        <?php if ($sectionVisible(['purchase_orders', 'need_to_order'])): ?>
+            <div class="nav-section">Purchasing</div>
+            <?php $navLink('purchase_orders'); $navLink('need_to_order'); ?>
+        <?php endif; ?>
+
+        <?php if ($sectionVisible(['batch_tickets', 'qc', 'scheduling'])): ?>
+            <div class="nav-section">Production</div>
+            <?php
+            $navLink('batch_tickets');
+            $navLink('qc', isset($byKey['batch_tickets']) ? 1 : 0);
+            if (isset($byKey['qc']) && user_can('qc.coa')) {
+                $lvl = isset($byKey['batch_tickets']) ? 2 : 1;
+                ?>
+                <a href="/qc/coa" class="<?= trim((str_starts_with($uri, '/qc/coa') ? 'active ' : '') . ($lvl === 2 ? 'nav-sub2' : 'nav-sub')) ?>"
                    title="Generate a Certificate of Analysis by lot number">
                     <span class="nav-icon">📜</span><span class="nav-label">COA</span>
                 </a>
-            <?php endif; ?>
-        <?php endforeach; ?>
+                <?php
+            }
+            $navLink('scheduling');
+            ?>
+        <?php endif; ?>
+
+        <?php if ($sectionVisible(['inventory', 'items', 'recipes'])): ?>
+            <div class="nav-section">Items</div>
+            <?php
+            $navLink('inventory');
+            $navLink('items');
+            $navLink('recipes', isset($byKey['items']) ? 1 : 0);
+            ?>
+        <?php endif; ?>
+
+        <?php
+        // Safety net: a future module not placed above still gets a link.
+        $placed = ['sales_orders', 'order_readiness', 'margin_watchdog', 'purchase_orders',
+                   'need_to_order', 'batch_tickets', 'qc', 'scheduling', 'inventory', 'items', 'recipes'];
+        foreach ($byKey as $k => $m) {
+            if (!in_array($k, $placed, true)) {
+                $navLink($k);
+            }
+        }
+        ?>
         <?php if (user_can_see_module('margin_watchdog')): ?>
             <a href="/presets" class="<?= str_starts_with($uri, '/presets') ? 'active' : '' ?>">
                 <span class="nav-icon">📌</span><span class="nav-label">Date presets</span>
