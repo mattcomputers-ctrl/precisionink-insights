@@ -124,6 +124,25 @@ Eight set-based queries, each filtered to open/current rows only:
    the linked MFBA makes (fallback: the UI item with a CostingRecipe).
 8. Last-made dates for suggestion items.
 
+The read-only viewers (Sales Orders, Purchase Orders, Batch Tickets, QC,
+Items) query CMS live. Key chains verified live 2026-11-04:
+- QC result → batch: `LocationSampleTest` (Result/Passed/TestedTime/
+  TestedBy) → `Location` (the SMP sample container) → `Inventory` →
+  `Sublot` → `Lot` → `Lot.OrdDetail` → the ticket's PK line; specs per
+  item+test in `ItemTest` (Min/Max/Target, OnReceipt/OnProduction/OnRetest).
+- PO receipts: `ChangeSetReceipt` (OrdDetail, Item, PSQty, Sublot) →
+  `ChangeSet.ChangeDate` (when) and `Sublot`→`Lot` (lot + SupLot).
+- Ticket execution: material issues are `InvMovementDtl` Context 'US'
+  (negative qty) against the UI line; `OrdDetail.QtyUsed` is maintained as
+  lines are issued. Produced lots: `Lot.OrdDetail` → the PK line, lot
+  number = `Lot.Lot` (date-coded), `ManfDate` set on production.
+- Stock by container: `Inventory` (Sublot, Location, Item, Qty, Status) →
+  `Location.LocationCode` + `Sublot`→`Lot` (ReceivedDate/ManfDate/Supplier).
+- Driver portability: LIKE escapes use '!' (backslash breaks pdo_dblib's
+  emulated-prepare placeholder counting) and TestResult/Memo UDT columns
+  (nvarchar(max)-based) must be CONVERTed to VARCHAR or FreeTDS returns
+  them empty.
+
 The Need to Order job adds: recipe explosion level by level
 (`RecipeDetail` UI rows via `Item.CostingRecipe` — `QtyReqd` is the
 fraction per 1 unit of the parent, UI fractions sum to 1.0 on bulk,

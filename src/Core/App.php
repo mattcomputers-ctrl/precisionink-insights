@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace PII\Core;
 
 use PII\Middleware\AuthMiddleware;
+use PII\Modules\BatchTickets\BatchTicketsModule;
 use PII\Modules\InventoryBrowser\InventoryBrowserModule;
+use PII\Modules\Items\ItemsModule;
 use PII\Modules\MarginWatchdog\MarginWatchdogModule;
 use PII\Modules\NeedToOrder\NeedToOrderModule;
 use PII\Modules\OrderReadiness\OrderReadinessModule;
+use PII\Modules\PurchaseOrders\PurchaseOrdersModule;
+use PII\Modules\Qc\QcModule;
 use PII\Modules\RecipeLookup\RecipeLookupModule;
+use PII\Modules\SalesOrders\SalesOrdersModule;
 use PII\Modules\Scheduling\SchedulingModule;
 
 /**
@@ -127,7 +132,12 @@ class App
         // hand-off (SyncContext::share), so it must register AFTER it.
         $registry->register(new OrderReadinessModule());
         $registry->register(new NeedToOrderModule());
+        $registry->register(new SalesOrdersModule());
+        $registry->register(new PurchaseOrdersModule());
+        $registry->register(new BatchTicketsModule());
+        $registry->register(new QcModule());
         $registry->register(new InventoryBrowserModule());
+        $registry->register(new ItemsModule());
         $registry->register(new RecipeLookupModule());
         $registry->register(new MarginWatchdogModule());
         $registry->register(new SchedulingModule());

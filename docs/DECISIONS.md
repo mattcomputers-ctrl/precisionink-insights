@@ -237,15 +237,6 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     ticket requirements, and new batches carry containers per lb through
     the pack recipe.
 
-46. **Item right-click menu (Matt, 2026-11-04):** item codes across the
-    modules (Inventory, Need to Order, by-item, tickets, production plan,
-    short materials, order drill-down, Recipes) carry a context menu:
-    View active recipe (opens the in-page recipe window from ANY page via
-    /recipes/active?code=, alias-aware), Find in Recipes / Inventory,
-    Coverage by item, Need to Order. Entries are permission-gated
-    server-side in the layout (hidden modules stay hidden); the recipe
-    window + handlers moved from the Recipes view into the layout/app.js.
-    A purchased item answers with a friendly "no active recipe" note.
 45. **Item & Recipe Lookup module (Matt, 2026-11-04):** search by item
     number/description, alias code/description, or recipe number; each
     item lists every recipe that PRODUCES it (matched via the recipe's PK
@@ -257,6 +248,39 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     Watchdog — recipes are ~190k detail rows that change rarely, so they
     are not snapshotted; the tool pauses during blackout/kill switch.
     Permission recipes.view, no grants seeded. Recipe views audit-logged.
+
+46. **Item right-click menu (Matt, 2026-11-04):** item codes across the
+    modules (Inventory, Need to Order, by-item, tickets, production plan,
+    short materials, order drill-down, Recipes) carry a context menu:
+    View active recipe (opens the in-page recipe window from ANY page via
+    /recipes/active?code=, alias-aware), Find in Recipes / Inventory,
+    Coverage by item, Need to Order. Entries are permission-gated
+    server-side in the layout (hidden modules stay hidden); the recipe
+    window + handlers moved from the Recipes view into the layout/app.js.
+    A purchased item answers with a friendly "no active recipe" note.
+47. **Read-only operational viewers (Matt, 2026-11-04):** five live-CMS
+    modules on the road to Insights becoming the operations front-end
+    (write access comes later, piece by piece): Sales Orders
+    (sales.view) - every order with lines, prices, shipments and invoice
+    numbers via the ShipmentDetails view; Purchase Orders
+    (purchasing.view) - lines from the PurchaseOrderDetail view with
+    TheirCode and receipts via ChangeSetReceipt -> ChangeSet (date) ->
+    Sublot/Lot; Batch Tickets (orders.tickets_view) - full history with
+    the batch sheet (UI+INSTR OrdDetail rows in ExecOrder, required vs
+    issued), produced lots (Lot.OrdDetail -> PK line) and their QC;
+    QC Results (qc.view) - the result chain is LocationSampleTest ->
+    Location (SMP sample container) -> Inventory -> Sublot -> Lot ->
+    Lot.OrdDetail -> ticket, with specs from ItemTest; Items (items.view)
+    - the item 360 (master data, aliases, recipes, QC specs, stock by
+    container/lot, recent sales/purchases, where-used; StandardCost only
+    with margin.view; detail addressed by ?code= since codes contain
+    spaces). All follow the Margin Watchdog live pattern (friendly pause
+    when CMS is unavailable), no grants seeded. Portability rules learned
+    on the dblib fallback: LIKE escapes use '!' (never backslash - PDO's
+    emulated-prepare parser miscounts placeholders after a
+    backslash-quote), and wide text columns (TestResult/Memo UDTs over
+    nvarchar(max)) are CONVERTed to VARCHAR in the SELECT or FreeTDS
+    returns them empty.
 
 ## Formerly-open items, now decided
 

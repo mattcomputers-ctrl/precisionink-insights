@@ -303,6 +303,17 @@ function sync_now_button(): string
  * coverage by item, Need to Order — entries permission-gated in the
  * layout's menu config; the markup itself is inert without it.
  */
+/**
+ * Escape LIKE wildcards in user input for CMS queries. The escape char is
+ * '!' (pair with ESCAPE '!'), NEVER backslash: PDO's emulated-prepare
+ * parser under pdo_dblib treats \' as an escaped quote and then miscounts
+ * the ? placeholders ("Invalid parameter number").
+ */
+function cms_like_escape(string $s): string
+{
+    return str_replace(['!', '%', '_', '['], ['!!', '!%', '!_', '!['], $s);
+}
+
 function item_ctx(string $code, ?string $label = null, bool $strong = true): string
 {
     if ($code === '') {

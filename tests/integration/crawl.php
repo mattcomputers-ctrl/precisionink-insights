@@ -117,6 +117,17 @@ $routes = [
     // CMS is unreachable in this environment: the fragment answers 500
     // with a friendly alert (not a stack trace) for permitted users.
     ['/recipes/active?code=TEST',              500, 404, 404, 404, 404, 404, 404],
+    // Read-only operational viewers (live CMS: pages render the friendly
+    // "CMS unavailable" alert here, never an error dump).
+    ['/sales-orders',                          200, 404, 404, 404, 404, 404, 404],
+    ['/sales-orders/999999',                   200, 404, 404, 404, 404, 404, 404],
+    ['/purchase-orders',                       200, 404, 404, 404, 404, 404, 404],
+    ['/purchase-orders/999999',                200, 404, 404, 404, 404, 404, 404],
+    ['/batch-tickets',                         200, 200, 200, 200, 404, 404, 404],
+    ['/batch-tickets/999999',                  200, 200, 200, 200, 404, 404, 404],
+    ['/qc',                                    200, 404, 404, 404, 404, 404, 404],
+    ['/items',                                 200, 404, 404, 404, 404, 404, 404],
+    ['/items/view?code=ZZZ-NOPE',              200, 404, 404, 404, 404, 404, 404],
     ['/admin/users',                           200, 404, 404, 404, 404, 404, 404],
     ['/admin/groups',                          200, 404, 404, 404, 404, 404, 404],
     ['/admin/settings',                        200, 404, 404, 404, 404, 404, 404],
