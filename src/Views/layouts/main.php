@@ -115,26 +115,33 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
         ?>
 
         <?php if ($sectionVisible(['items', 'recipes', 'inventory'])): ?>
-            <div class="nav-section">Items</div>
+            <div class="nav-section nav-sec-toggle" data-sec="items" role="button" tabindex="0">Items<span class="nav-chev">▾</span></div>
+            <div class="nav-group" data-sec="items">
             <?php
             $navLink('items');
             $navLink('recipes', isset($byKey['items']) ? 1 : 0);
             $navLink('inventory');
             ?>
+            </div>
         <?php endif; ?>
 
-        <?php if ($sectionVisible(['sales_orders', 'order_readiness', 'margin_watchdog'])): ?>
-            <div class="nav-section">Sales</div>
-            <?php $navLink('sales_orders'); $navLink('order_readiness'); $navLink('margin_watchdog'); ?>
+        <?php if ($sectionVisible(['sales_orders', 'order_readiness', 'shipping', 'margin_watchdog'])): ?>
+            <div class="nav-section nav-sec-toggle" data-sec="sales" role="button" tabindex="0">Sales<span class="nav-chev">▾</span></div>
+            <div class="nav-group" data-sec="sales">
+            <?php $navLink('sales_orders'); $navLink('order_readiness'); $navLink('shipping'); $navLink('margin_watchdog'); ?>
+            </div>
         <?php endif; ?>
 
         <?php if ($sectionVisible(['purchase_orders', 'need_to_order'])): ?>
-            <div class="nav-section">Purchasing</div>
+            <div class="nav-section nav-sec-toggle" data-sec="purchasing" role="button" tabindex="0">Purchasing<span class="nav-chev">▾</span></div>
+            <div class="nav-group" data-sec="purchasing">
             <?php $navLink('purchase_orders'); $navLink('need_to_order'); ?>
+            </div>
         <?php endif; ?>
 
         <?php if ($sectionVisible(['batch_tickets', 'qc', 'scheduling'])): ?>
-            <div class="nav-section">Production</div>
+            <div class="nav-section nav-sec-toggle" data-sec="production" role="button" tabindex="0">Production<span class="nav-chev">▾</span></div>
+            <div class="nav-group" data-sec="production">
             <?php
             $navLink('batch_tickets');
             $navLink('qc', isset($byKey['batch_tickets']) ? 1 : 0);
@@ -149,11 +156,12 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
             }
             $navLink('scheduling');
             ?>
+            </div>
         <?php endif; ?>
 
         <?php
         // Safety net: a future module not placed above still gets a link.
-        $placed = ['sales_orders', 'order_readiness', 'margin_watchdog', 'purchase_orders',
+        $placed = ['sales_orders', 'order_readiness', 'shipping', 'margin_watchdog', 'purchase_orders',
                    'need_to_order', 'batch_tickets', 'qc', 'scheduling', 'inventory', 'items', 'recipes'];
         foreach ($byKey as $k => $m) {
             if (!in_array($k, $placed, true)) {
@@ -176,12 +184,14 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
         if (user_can('admin.system')) { $adminLinks['/admin/audit-log'] = ['📜', 'Audit log']; }
         ?>
         <?php if ($adminLinks !== []): ?>
-            <div class="nav-section">Administration</div>
+            <div class="nav-section nav-sec-toggle" data-sec="admin" role="button" tabindex="0">Administration<span class="nav-chev">▾</span></div>
+            <div class="nav-group" data-sec="admin">
             <?php foreach ($adminLinks as $href => [$icon, $label]): ?>
                 <a href="<?= e($href) ?>" class="<?= str_starts_with($uri, $href) ? 'active' : '' ?>">
                     <span class="nav-icon"><?= $icon ?></span><span class="nav-label"><?= e($label) ?></span>
                 </a>
             <?php endforeach; ?>
+            </div>
         <?php endif; ?>
     </nav>
     <?php endif; ?>

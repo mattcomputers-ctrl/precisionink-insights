@@ -358,6 +358,32 @@
         });
     }
 
+    /* ── Collapsible nav sections (state remembered per browser) ── */
+    (function () {
+        let stored = {};
+        try { stored = JSON.parse(localStorage.getItem('pii.nav.sections') || '{}'); } catch (e) {}
+        document.querySelectorAll('.side-nav .nav-sec-toggle[data-sec]').forEach((head) => {
+            const sec = head.dataset.sec;
+            const group = document.querySelector('.side-nav .nav-group[data-sec="' + sec + '"]');
+            if (!group) return;
+            const apply = (closed) => {
+                group.classList.toggle('nav-group-closed', closed);
+                head.classList.toggle('closed', closed);
+            };
+            let closed = !!stored[sec];
+            if (group.querySelector('a.active')) closed = false;   // never hide the page you're on
+            apply(closed);
+            const toggle = () => {
+                closed = !closed;
+                apply(closed);
+                stored[sec] = closed;
+                try { localStorage.setItem('pii.nav.sections', JSON.stringify(stored)); } catch (e) {}
+            };
+            head.addEventListener('click', toggle);
+            head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        });
+    })();
+
     /* ── Right-click menus: items and lots, cross-links between modules ── */
     const itemMenu = window.PII_ITEM_MENU || [];
     const lotMenu = window.PII_LOT_MENU || [];

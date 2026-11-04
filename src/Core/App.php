@@ -15,6 +15,7 @@ use PII\Modules\PurchaseOrders\PurchaseOrdersModule;
 use PII\Modules\Qc\QcModule;
 use PII\Modules\RecipeLookup\RecipeLookupModule;
 use PII\Modules\SalesOrders\SalesOrdersModule;
+use PII\Modules\Shipping\ShippingModule;
 use PII\Modules\Scheduling\SchedulingModule;
 
 /**
@@ -133,6 +134,7 @@ class App
         $registry->register(new OrderReadinessModule());
         $registry->register(new NeedToOrderModule());
         $registry->register(new SalesOrdersModule());
+        $registry->register(new ShippingModule());
         $registry->register(new PurchaseOrdersModule());
         $registry->register(new BatchTicketsModule());
         $registry->register(new QcModule());

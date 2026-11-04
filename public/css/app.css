@@ -175,11 +175,21 @@ code { background: var(--surface-2); padding: 0.1em 0.35em; border-radius: 4px; 
 .side-nav a:hover { background: var(--surface-2); text-decoration: none; }
 .side-nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .side-nav .nav-icon { flex: 0 0 auto; width: 1.4rem; text-align: center; font-size: 1.1rem; }
+.side-nav .nav-sec-toggle {
+    cursor: pointer; user-select: none;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.side-nav .nav-chev { font-size: 0.65rem; transition: transform 0.12s; }
+.side-nav .nav-sec-toggle.closed .nav-chev { transform: rotate(-90deg); }
+.side-nav .nav-group.nav-group-closed { display: none; }
+/* In the icon rail every link stays reachable, whatever is collapsed. */
+body.nav-collapsed .side-nav .nav-group.nav-group-closed { display: block; }
 .side-nav a.nav-sub  { padding-left: 1.9rem; min-height: 38px; font-size: 0.92rem; }
 .side-nav a.nav-sub2 { padding-left: 3.1rem; min-height: 36px; font-size: 0.9rem; }
 body.nav-collapsed .side-nav a.nav-sub,
 body.nav-collapsed .side-nav a.nav-sub2 { padding-left: 0.7rem; }
 .side-nav .nav-section {
+    flex: 0 0 auto;   /* never squashed to 0 when the nav overflows */
     margin-top: 0.9rem; padding: 0 0.7rem; font-size: 0.72rem; font-weight: 700;
     letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden;
 }

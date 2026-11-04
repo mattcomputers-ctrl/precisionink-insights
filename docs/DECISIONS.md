@@ -318,6 +318,20 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     the ticket page shows one master lot (packs' lots are a column on
     their pack rows).
 
+49. **Shipping module + collapsible nav (Matt, 2026-11-04):** Shipping
+    (/shipping, shipping.view, lives in the Sales nav section) browses
+    every waybill live from CMS: Waybill.ShipVia -> Entities is the
+    carrier; WaybillTrackingNumber = one row per ASSEMBLY (an ASM
+    Location, the carton/pallet) with tracking number, freight cost and
+    actual weight; assembly CONTENTS come from the shipment movement
+    lines (ChangeSetShipment -> InvMovement 'SH' -> negative
+    InvMovementDtl whose Location is the assembly); orders/invoices via
+    ShipmentDetails. Nav sections are collapsible (chevron, state in
+    localStorage per browser; the section holding the active page always
+    opens; the icon rail ignores collapsed state so every link stays
+    reachable). Fixed: .nav-section needed flex:0 0 auto or the flex
+    column squashed headers to 0 height once the nav overflowed.
+
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of
