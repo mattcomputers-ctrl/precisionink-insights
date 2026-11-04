@@ -59,7 +59,13 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
                         <td class="nowrap">
                             <a href="/batch-tickets/<?= (int) $t['Ordr'] ?>"><strong><?= (int) $t['Ordr'] ?></strong></a>
                         </td>
-                        <td><span class="tag"><?= e($t['Context'] === 'MFBA' ? 'Bulk' : 'Packaging') ?></span></td>
+                        <td class="nowrap">
+                            <?php if ((int) ($t['IsRepack'] ?? 0) === 1): ?>
+                                <span class="pill pill-info" title="No recipe — existing stock repacked into a different pack size">REPACK</span>
+                            <?php else: ?>
+                                <span class="tag"><?= e($t['Context'] === 'MFBA' ? 'Bulk' : 'Packaging') ?></span>
+                            <?php endif; ?>
+                        </td>
                         <td class="nowrap"><?= $pill((string) $t['Status']) ?></td>
                         <td class="nowrap"><?= item_ctx((string) $t['ItemCode']) ?></td>
                         <td><?= e((string) ($t['Description'] ?? '')) ?></td>

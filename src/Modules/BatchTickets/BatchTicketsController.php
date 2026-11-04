@@ -65,10 +65,14 @@ class BatchTicketsController
             $tickets = $cms->fetchAll("
                 SELECT TOP " . (self::MAX_ROWS + 1) . "
                        o.Ordr, o.Context, o.Status,
-                       i.ItemCode, i.Description, od.QtyReqd AS Qty, i.Unit,
+                       i.ItemCode, i.Description,
+                       COALESCE(od.QtyReqd, od.RepackagingYield) AS Qty, i.Unit,
                        CONVERT(VARCHAR(10), o.DateRequired, 23)  AS DateRequired,
                        CONVERT(VARCHAR(10), o.DateCompleted, 23) AS DateCompleted,
-                       packs.n AS PackCount
+                       packs.n AS PackCount,
+                       CASE WHEN EXISTS (SELECT 1 FROM CMS.dbo.OrdDetail ru
+                                         WHERE ru.Ordr = o.Ordr AND ru.Context = 'UI'
+                                           AND ru.IsRepackaging = 1) THEN 1 ELSE 0 END AS IsRepack
                 FROM CMS.dbo.Ordr o
                 JOIN CMS.dbo.OrdDetail od ON od.Ordr = o.Ordr AND od.Context = 'PK'
                 JOIN CMS.dbo.Item i ON i.Item = od.Item
@@ -131,7 +135,9 @@ class BatchTicketsController
 
             $head = $cms->fetch("
                 SELECT o.Ordr, o.Context, o.Status, CONVERT(VARCHAR(2000), o.Comment) AS Comment,
-                       i.ItemCode, i.Description, od.QtyReqd AS Qty, od.QtyUsed AS QtyActual, i.Unit,
+                       i.ItemCode, i.Description,
+                       COALESCE(od.QtyReqd, od.RepackagingYield) AS Qty,
+                       od.QtyUsed AS QtyActual, i.Unit,
                        CONVERT(VARCHAR(10), o.DateRequired, 23)  AS DateRequired,
                        CONVERT(VARCHAR(10), o.DateReleased, 23)  AS DateReleased,
                        CONVERT(VARCHAR(10), o.DateScheduled, 23) AS DateScheduled,
@@ -145,7 +151,7 @@ class BatchTicketsController
                 // The batch sheet: ingredients + instructions in execution
                 // order — required vs actually consumed (QtyUsed).
                 $lines = $cms->fetchAll("
-                    SELECT od.Context, od.QtyReqd, od.QtyUsed, od.[Percent],
+                    SELECT od.Context, od.QtyReqd, od.QtyUsed, od.[Percent], od.IsRepackaging,
                            od.Description AS InstrText,
                            COALESCE(NULLIF(od.SupUnit, ''), i.Unit) AS Unit,
                            i.ItemCode, i.Description AS ItemDescription
@@ -153,6 +159,11 @@ class BatchTicketsController
                     LEFT JOIN CMS.dbo.Item i ON i.Item = od.Item
                     WHERE od.Ordr = ? AND od.Context IN ('UI','INSTR')
                     ORDER BY COALESCE(od.ExecOrder, od.Line, 999999), od.OrdDetail", [$ordr]);
+
+                // A ticket with no recipe behind it is a REPACK: its one UI
+                // line pulls the item itself from stock (IsRepackaging) and
+                // the pack runs put it into the new pack size.
+                $isRepack = (bool) array_filter($lines, fn($l) => (int) ($l['IsRepackaging'] ?? 0) === 1);
 
                 // Packaging runs on this batch: expected vs packed pounds,
                 // plus each run's own material lines (bulk + containers).
@@ -242,6 +253,7 @@ class BatchTicketsController
             'pageTitle'  => 'Ticket ' . $ordr,
             'ordr'       => $ordr,
             'head'       => $head,
+            'isRepack'   => $isRepack ?? false,
             'lines'      => $lines,
             'packs'      => $packs,
             'lots'       => $lots,

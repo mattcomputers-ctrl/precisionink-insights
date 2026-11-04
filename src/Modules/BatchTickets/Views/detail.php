@@ -3,8 +3,8 @@
  * One batch ticket, packs INSIDE it (Matt, 2026-11-04): header, packaging
  * section (expected lb per pack), batch sheet (expected vs consumed),
  * yield (bulk + each pack), produced lots & QC. Live CMS.
- * @var int $ordr  @var ?array $head  @var array $lines  @var array $packs
- * @var array $lots  @var array $qc  @var ?float $bulkActual
+ * @var int $ordr  @var ?array $head  @var bool $isRepack  @var array $lines
+ * @var array $packs  @var array $lots  @var array $qc  @var ?float $bulkActual
  * @var ?string $error  @var ?string $asOf
  */
 $statusPill = fn(string $s): string => match ($s) {
@@ -31,12 +31,16 @@ $done = in_array($head['Status'] ?? '', ['CMP', 'CLS', 'BAT'], true);
     <div class="toolbar">
         <div>
             <h2 class="card-title">
-                <?= e($head['Context'] === 'MFBA' ? 'Batch' : 'Packaging') ?> ticket <?= (int) $ordr ?>
+                <?= e($isRepack ? 'Repack' : ($head['Context'] === 'MFBA' ? 'Batch' : 'Packaging')) ?> ticket <?= (int) $ordr ?>
                 <?= $statusPill((string) $head['Status']) ?>
+                <?php if ($isRepack): ?><span class="pill pill-info" title="No recipe — existing stock repacked into a different pack size">REPACK</span><?php endif; ?>
             </h2>
             <div class="card-subtitle">
-                Makes <?= item_ctx((string) $head['ItemCode']) ?>
+                <?= $isRepack ? 'Repacks' : 'Makes' ?> <?= item_ctx((string) $head['ItemCode']) ?>
                 <?= $head['Description'] ? '— ' . e((string) $head['Description']) : '' ?>
+                <?php if ($isRepack && $packs !== []): ?>
+                    into <?= implode(', ', array_map(fn($p) => '<strong>' . e((string) $p['ItemCode']) . '</strong>', $packs)) ?>
+                <?php endif; ?>
                 · <?= fmt_number((float) $head['Qty'], 1) ?> <?= e((string) $head['Unit']) ?> planned
                 <br>
                 <?php if ($head['DateRequired']): ?>required <?= e(fmt_date($head['DateRequired'])) ?><?php endif; ?>
@@ -91,7 +95,13 @@ $done = in_array($head['Status'] ?? '', ['CMP', 'CLS', 'BAT'], true);
 <?php endif; ?>
 
 <div class="card">
-    <h2 class="card-title"><?= $done ? 'Materials — expected vs consumed' : 'Batch sheet' ?></h2>
+    <h2 class="card-title"><?= $isRepack ? 'Pulled from stock'
+        : ($done ? 'Materials — expected vs consumed' : 'Batch sheet') ?></h2>
+    <?php if ($isRepack): ?>
+        <div class="card-subtitle" style="margin-bottom:0.5rem;">
+            No recipe behind this ticket — existing stock was pulled and repacked into a different pack size.
+        </div>
+    <?php endif; ?>
     <?php if ($lines === []): ?>
         <div class="empty-state"><span class="empty-icon">📄</span>No lines on this ticket.</div>
     <?php else: ?>
@@ -99,8 +109,9 @@ $done = in_array($head['Status'] ?? '', ['CMP', 'CLS', 'BAT'], true);
     <div class="table-scroll">
         <table class="table">
             <thead>
-                <tr><th style="width:80px;" class="text-right">%</th><th>Ingredient / step</th><th>Description</th>
-                    <th class="text-right">Expected</th><th class="text-right">Consumed</th></tr>
+                <tr><th style="width:80px;" class="text-right"><?= $isRepack ? '' : '%' ?></th>
+                    <th><?= $isRepack ? 'Repacked item' : 'Ingredient / step' ?></th><th>Description</th>
+                    <th class="text-right">Expected</th><th class="text-right"><?= $isRepack ? 'Pulled' : 'Consumed' ?></th></tr>
             </thead>
             <tbody>
             <?php foreach ($lines as $l): ?>

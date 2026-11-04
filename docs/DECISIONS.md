@@ -275,7 +275,13 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     link is OrdDetailCommit (pack bulk-line commits against the bulk PK
     line; BatchSheetDemand only covers OPEN chains). Actuals: pack PK
     QtyUsed = pounds packed; bulk actual = positive PCKAGE/CMNGL movement
-    qty on the produced lot's sublots (what left the batch vessel);
+    qty on the produced lot's sublots (what left the batch vessel).
+    REPACK tickets (Matt, 2026-11-04): a ticket with no recipe is a
+    repack - its UI line pulls the item ITSELF from stock
+    (OrdDetail.IsRepackaging = 1, planned qty in PK RepackagingYield
+    since PK QtyReqd is NULL). Shown with a REPACK pill, 'Repacks X
+    into Y' header, and a 'Pulled from stock' section instead of the
+    batch sheet;
     QC Results (qc.view) - the result chain is LocationSampleTest ->
     Location (SMP sample container) -> Inventory -> Sublot -> Lot ->
     Lot.OrdDetail -> ticket, with specs from ItemTest; Items (items.view)
