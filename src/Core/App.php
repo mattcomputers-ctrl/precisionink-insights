@@ -9,6 +9,7 @@ use PII\Modules\InventoryBrowser\InventoryBrowserModule;
 use PII\Modules\MarginWatchdog\MarginWatchdogModule;
 use PII\Modules\NeedToOrder\NeedToOrderModule;
 use PII\Modules\OrderReadiness\OrderReadinessModule;
+use PII\Modules\RecipeLookup\RecipeLookupModule;
 use PII\Modules\Scheduling\SchedulingModule;
 
 /**
@@ -127,6 +128,7 @@ class App
         $registry->register(new OrderReadinessModule());
         $registry->register(new NeedToOrderModule());
         $registry->register(new InventoryBrowserModule());
+        $registry->register(new RecipeLookupModule());
         $registry->register(new MarginWatchdogModule());
         $registry->register(new SchedulingModule());
         // Future tabs go here:

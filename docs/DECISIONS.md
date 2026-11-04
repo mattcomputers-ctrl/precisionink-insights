@@ -237,6 +237,18 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     ticket requirements, and new batches carry containers per lb through
     the pack recipe.
 
+45. **Item & Recipe Lookup module (Matt, 2026-11-04):** search by item
+    number/description, alias code/description, or recipe number; each
+    item lists every recipe that PRODUCES it (matched via the recipe's PK
+    line, never name-stem guessing), active costing recipe first. A
+    recipe opens in an in-page window as a 100% formula with the
+    procedure steps interleaved in ExecOrder (verified live: that is the
+    batch-sheet order), ingredient items made in-house click through to
+    THEIR recipe (back button, print). Queries CMS LIVE like Margin
+    Watchdog — recipes are ~190k detail rows that change rarely, so they
+    are not snapshotted; the tool pauses during blackout/kill switch.
+    Permission recipes.view, no grants seeded. Recipe views audit-logged.
+
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of
