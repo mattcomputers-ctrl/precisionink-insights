@@ -59,7 +59,7 @@ $tabs = ['open' => 'Open', 'completed' => 'Completed', 'all' => 'All'];
                 <?php foreach ($orders as $o): ?>
                     <tr>
                         <td><a href="/sales-orders/<?= (int) $o['Ordr'] ?>"><strong><?= (int) $o['Ordr'] ?></strong></a></td>
-                        <td class="nowrap"><?= $pill((string) $o['Status']) ?></td>
+                        <td class="nowrap"><?= $pill((string) $o['Status']) ?><?php if ((int) ($o['IsBackorder'] ?? 0) === 1): ?> <span class="pill pill-warn" title="Open with some material already shipped">Backorder</span><?php endif; ?></td>
                         <td><?= e((string) ($o['BillToName'] ?: $o['BillTo'])) ?></td>
                         <td class="text-muted"><?= e((string) ($o['ShipToName'] ?? '')) ?></td>
                         <td class="text-muted"><?= e((string) ($o['PoNumber'] ?? '')) ?></td>

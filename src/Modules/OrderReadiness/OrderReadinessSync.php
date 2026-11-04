@@ -140,6 +140,18 @@ class OrderReadinessSync
             LEFT JOIN CMS.dbo.Entities st ON st.Entity = o.ShipTo
             WHERE o.Context = 'SH' AND o.Status IN ('RTS','CSH')");
 
+        // Open orders with ANY material already shipped are backorders
+        // (Matt, 2026-11-04).
+        $backordered = [];
+        foreach ($c->cmsFetchAll('partially shipped orders', "
+            SELECT DISTINCT od.Ordr
+            FROM CMS.dbo.OrdDetail od
+            JOIN CMS.dbo.Ordr o ON o.Ordr = od.Ordr
+            WHERE o.Context = 'SH' AND o.Status IN ('RTS','CSH')
+              AND od.Context = 'SH' AND COALESCE(od.QtyUsed, 0) > 0") as $r) {
+            $backordered[(int) $r['Ordr']] = true;
+        }
+
         $this->orders = [];
         foreach ($orders as $r) {
             $this->orders[(int) $r['Ordr']] = [
@@ -153,6 +165,7 @@ class OrderReadinessSync
                 'date_ordered'     => $r['DateOrdered'] ?: null,
                 'date_required'    => $r['DateRequired'] ?: null,
                 'dont_ship_before' => $r['DontShipBefore'] ?: null,
+                'is_backorder'     => isset($backordered[(int) $r['Ordr']]) ? 1 : 0,
             ];
         }
 

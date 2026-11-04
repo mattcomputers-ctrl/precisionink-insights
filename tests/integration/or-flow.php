@@ -87,6 +87,7 @@ $pdo->exec("INSERT INTO or_ticket_materials (ordr, item_code, qty_reqd, unit) VA
     (7001, 'VEC-7', 12.5, 'lb')");
 $pdo->exec("INSERT INTO or_ticket_readiness (ordr, status, shortages, from_mfba, mfba_short) VALUES
     (7001, 'short', '[{\"item_code\":\"VEC-7\",\"need\":12.5,\"short\":12.5,\"unit\":\"lb\"}]', 0, 0)");
+$pdo->exec("UPDATE or_orders SET is_backorder = 1 WHERE ordr = 9001");
 $pdo->exec("INSERT INTO or_order_priority (ordr, position) VALUES (9001, 1), (9002, 2)");
 $pdo->exec("INSERT INTO or_production_suggestions (item_code, severity, minimum_stock, on_hand, on_tickets, open_demand, projected, shortfall, suggested_qty, recipe_number) VALUES
     ('A-50', 'below', 100, 80, 60, 150, -10, 110, 150, 'A.03')");
@@ -142,6 +143,7 @@ echo "== pages\n";
 $page = $ship->get('/orders/list?tab=all');
 ok($page['status'] === 200 && str_contains($page['body'], '9001') && str_contains($page['body'], 'PRIORITY CO'),
     'orders list shows the seeded orders');
+ok(str_contains($page['body'], 'Backorder'), 'partially shipped open order is flagged Backorder');
 $page = $ship->get('/orders/list?tab=discontinued');
 ok(str_contains($page['body'], '9002'), 'discontinued tab shows order 9002');
 ok(str_contains($page['body'], 'DISCONTINUED'), 'discontinued badge visible');

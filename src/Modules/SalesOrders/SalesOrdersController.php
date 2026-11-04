@@ -58,7 +58,12 @@ class SalesOrdersController
                        st.EntityName AS ShipToName,
                        sv.EntityName AS ShipVia,
                        CONVERT(VARCHAR(10), o.DateOrdered, 23)  AS DateOrdered,
-                       CONVERT(VARCHAR(10), o.DateRequired, 23) AS DateRequired
+                       CONVERT(VARCHAR(10), o.DateRequired, 23) AS DateRequired,
+                       CASE WHEN o.Status IN ('RTS','CSH') AND EXISTS (
+                                SELECT 1 FROM CMS.dbo.OrdDetail bod
+                                WHERE bod.Ordr = o.Ordr AND bod.Context = 'SH'
+                                  AND COALESCE(bod.QtyUsed, 0) > 0)
+                            THEN 1 ELSE 0 END AS IsBackorder
                 FROM CMS.dbo.Ordr o
                 LEFT JOIN CMS.dbo.Entities bt ON bt.Entity = o.BillTo
                 LEFT JOIN CMS.dbo.Entities st ON st.Entity = o.ShipTo
@@ -131,6 +136,11 @@ class SalesOrdersController
                        st.EntityCode AS ShipTo, st.EntityName AS ShipToName,
                        sv.EntityName AS ShipVia,
                        sm.EntityName AS SalesmanName,
+                       CASE WHEN o.Status IN ('RTS','CSH') AND EXISTS (
+                                SELECT 1 FROM CMS.dbo.OrdDetail bod
+                                WHERE bod.Ordr = o.Ordr AND bod.Context = 'SH'
+                                  AND COALESCE(bod.QtyUsed, 0) > 0)
+                            THEN 1 ELSE 0 END AS IsBackorder,
                        o.PlacedBy,
                        CONVERT(VARCHAR(10), o.DateOrdered, 23)    AS DateOrdered,
                        CONVERT(VARCHAR(10), o.DateRequired, 23)   AS DateRequired,

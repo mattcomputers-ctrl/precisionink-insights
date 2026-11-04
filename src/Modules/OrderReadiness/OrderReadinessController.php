@@ -801,6 +801,7 @@ class OrderReadinessController
                 'line_count'    => count($o['lines']),
                 'status'        => $roll['status'],
                 'summary'       => $roll['summary'],
+                'is_backorder'  => (int) ($o['is_backorder'] ?? 0),
                 'materials_short' => array_keys($materialsShort),
                 'items'         => implode(' ', array_column($o['lines'], 'alias_code')),
             ];

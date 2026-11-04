@@ -101,6 +101,9 @@ if ($canReorder) {
                     </td>
                     <td class="text-right"><?= (int) $o['line_count'] ?></td>
                     <td><?= $statusPill($o['status']) ?>
+                        <?php if ((int) ($o['is_backorder'] ?? 0) === 1): ?>
+                            <span class="pill pill-warn" title="Open with some material already shipped">Backorder</span>
+                        <?php endif; ?>
                         <?php if (!empty($o['materials_short'])): ?>
                             <span class="pill pill-warn" title="Batch ticket<?= count($o['materials_short']) === 1 ? '' : 's' ?> <?= e(implode(', ', $o['materials_short'])) ?> can't be made yet — short raw materials (see Batch tickets)">⚠ batch short materials</span>
                         <?php endif; ?>

@@ -25,6 +25,7 @@
                 <?php elseif ($head['Status'] === 'CSH'): ?><span class="pill pill-warn">Credit hold (CSH)</span>
                 <?php elseif ($head['Status'] === 'CMP'): ?><span class="pill pill-info">Shipped (CMP)</span>
                 <?php else: ?><span class="pill"><?= e((string) $head['Status']) ?></span><?php endif; ?>
+                <?php if ((int) ($head['IsBackorder'] ?? 0) === 1): ?><span class="pill pill-warn" title="Open with some material already shipped">Backorder</span><?php endif; ?>
             </h2>
             <div class="card-subtitle">
                 <strong><?= e((string) ($head['BillToName'] ?: $head['BillTo'])) ?></strong>
