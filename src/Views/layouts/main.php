@@ -114,6 +114,15 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
         $sectionVisible = fn(array $keys): bool => (bool) array_filter($keys, fn($k) => isset($byKey[$k]));
         ?>
 
+        <?php if ($sectionVisible(['items', 'recipes', 'inventory'])): ?>
+            <div class="nav-section">Items</div>
+            <?php
+            $navLink('items');
+            $navLink('recipes', isset($byKey['items']) ? 1 : 0);
+            $navLink('inventory');
+            ?>
+        <?php endif; ?>
+
         <?php if ($sectionVisible(['sales_orders', 'order_readiness', 'margin_watchdog'])): ?>
             <div class="nav-section">Sales</div>
             <?php $navLink('sales_orders'); $navLink('order_readiness'); $navLink('margin_watchdog'); ?>
@@ -139,15 +148,6 @@ $bodyClasses = trim(($colorsOn ? '' : 'colors-off ') . ($theme === 'dark' ? 'the
                 <?php
             }
             $navLink('scheduling');
-            ?>
-        <?php endif; ?>
-
-        <?php if ($sectionVisible(['inventory', 'items', 'recipes'])): ?>
-            <div class="nav-section">Items</div>
-            <?php
-            $navLink('inventory');
-            $navLink('items');
-            $navLink('recipes', isset($byKey['items']) ? 1 : 0);
             ?>
         <?php endif; ?>
 
