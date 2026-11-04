@@ -70,6 +70,9 @@ class SchedulingDataService
                 SELECT Item, MAX(MinimumStock) AS MinimumStock
                   FROM CMS.dbo.ItemEntity
                  WHERE Context = 'ST'
+                   -- 99 marks an item targeted for DISCONTINUATION, not a
+                   -- stocking target (Matt, 2026-11-04): never a trigger.
+                   AND ABS(MinimumStock - 99) > 0.0001
                  GROUP BY Item
             ) ms ON ms.Item = i.Item
             LEFT JOIN CMS.dbo.InventoryTotal it ON it.Item = i.Item
@@ -403,7 +406,9 @@ class SchedulingDataService
                        COALESCE(it.OpenToSell, 0) AS open_to_sell
                   FROM CMS.dbo.Item i
                   JOIN (SELECT Item, MAX(MinimumStock) AS MinimumStock
-                          FROM CMS.dbo.ItemEntity WHERE Context='ST' GROUP BY Item) ms
+                          FROM CMS.dbo.ItemEntity
+                         WHERE Context='ST' AND ABS(MinimumStock - 99) > 0.0001
+                         GROUP BY Item) ms
                     ON ms.Item = i.Item AND ms.MinimumStock > 0
                   LEFT JOIN (SELECT Item, SUM(QtyOpenToSell) AS OpenToSell
                                FROM CMS.dbo.InventoryTotal GROUP BY Item) it
