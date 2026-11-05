@@ -19,9 +19,18 @@ declare(strict_types=1);
  * common size. Items whose entire history is one-offs are left alone.
  * Pass --raw to skip the filter and take the top 5 as-is.
  *
+ * --create-missing (Matt, 2026-11-05, after the production backfill):
+ * also CREATE configs for unconfigured bulks that appear in the current
+ * workload (open tickets, order shortfalls, the production plan) — but
+ * only when the item has filtered batch history AND an alias-prefix
+ * color guess. Anything missing either stays unconfigured and keeps its
+ * generate-time warning, so nothing is invented.
+ *
  * Usage (on the server, from the app root):
- *   php bin/backfill-batch-sizes.php --dry-run   # show what would change
- *   php bin/backfill-batch-sizes.php             # apply
+ *   php bin/backfill-batch-sizes.php --dry-run                    # show what would change
+ *   php bin/backfill-batch-sizes.php                              # apply
+ *   php bin/backfill-batch-sizes.php --create-missing --dry-run   # + preview new configs
+ *   php bin/backfill-batch-sizes.php --create-missing             # + create them
  */
 
 require dirname(__DIR__) . '/vendor/autoload.php';
@@ -34,8 +43,24 @@ App::bootConsole();
 
 $dryRun = in_array('--dry-run', $argv, true);
 $raw    = in_array('--raw', $argv, true);
+$createMissing = in_array('--create-missing', $argv, true);
 $db  = Database::getInstance();
 $svc = new SchedulingDataService();
+
+/** Outlier filter: made at least twice AND at least 5% as often as the
+ *  item's most common size. --raw keeps everything. */
+$filterSizes = function (array $history) use ($raw): array {
+    if ($raw || $history === []) {
+        return $history;
+    }
+    $top = max(array_column($history, 'n'));
+    return array_values(array_filter(
+        $history,
+        fn($h) => $h['n'] >= 2 && $h['n'] >= 0.05 * $top
+    ));
+};
+$evidenceOf = fn(array $h) => implode(' · ', array_map(fn($x) => round($x['lbs']) . "×{$x['n']}", $h));
+$fmt = fn(array $a) => $a === [] ? '(none)' : implode('/', array_map(fn($v) => (string) round((float) $v), $a));
 
 $configs = $db->fetchAll("SELECT * FROM sched_item_config ORDER BY bulk_item_code");
 echo count($configs) . " configured item(s)"
@@ -63,19 +88,11 @@ foreach ($configs as $c) {
         continue;
     }
 
-    $kept = $history;
-    if (!$raw) {
-        $top = max(array_column($history, 'n'));
-        $kept = array_values(array_filter(
-            $history,
-            fn($h) => $h['n'] >= 2 && $h['n'] >= 0.05 * $top
-        ));
-        if ($kept === []) {
-            $tooThin++;
-            $evidence = implode(' · ', array_map(fn($h) => round($h['lbs']) . "×{$h['n']}", $history));
-            echo "  {$code}: history too thin (all one-offs) — left as is   [{$evidence}]\n";
-            continue;
-        }
+    $kept = $filterSizes($history);
+    if ($kept === []) {
+        $tooThin++;
+        echo "  {$code}: history too thin (all one-offs) — left as is   [{$evidenceOf($history)}]\n";
+        continue;
     }
 
     $sizes = array_column($kept, 'lbs');
@@ -89,11 +106,10 @@ foreach ($configs as $c) {
         }
     }
 
-    $fmt = fn(array $a) => $a === [] ? '(none)' : implode('/', array_map(fn($v) => (string) round((float) $v), $a));
-    $evidence = implode(' · ', array_map(fn($h) => round($h['lbs']) . "×{$h['n']}", $kept));
+    $evidence = $evidenceOf($kept);
     $dropped = array_udiff($history, $kept, fn($a, $b) => $a['lbs'] <=> $b['lbs']);
     if ($dropped !== []) {
-        $evidence .= ' | dropped as outliers: ' . implode(' · ', array_map(fn($h) => round($h['lbs']) . "×{$h['n']}", $dropped));
+        $evidence .= ' | dropped as outliers: ' . $evidenceOf($dropped);
     }
     echo "  {$code}: {$fmt($old)} -> {$fmt($sizes)}   [{$evidence}]\n";
 
@@ -112,3 +128,79 @@ foreach ($configs as $c) {
 echo "\n" . ($dryRun ? 'Would update' : 'Updated') . " {$updated} item(s); "
     . "{$noHistory} with no history and {$tooThin} with only one-off batches left untouched; "
     . "{$skippedNotMilled} not-milled skipped.\n";
+
+if (!$createMissing) {
+    exit(0);
+}
+
+/* ── create configs for unconfigured bulks in the current workload ── */
+
+echo "\nUnconfigured bulks in the current workload (open tickets + order\n"
+    . "shortfalls + production plan), from the latest sync:\n\n";
+
+try {
+    $packToBulk = $svc->packToBulkMap()['map'];
+} catch (\Throwable $e) {
+    $packToBulk = [];
+    echo "  (CMS pack→bulk map unavailable — order-shortfall grouping may be incomplete)\n";
+}
+
+$configured = array_flip(array_column($configs, 'bulk_item_code'));
+$missing = [];
+foreach ($svc->workload($packToBulk) as $d) {
+    $bulk = (string) $d['bulk'];
+    if (!isset($configured[$bulk]) && !in_array($bulk, $missing, true)) {
+        $missing[] = $bulk;
+    }
+}
+sort($missing);
+
+if ($missing === []) {
+    echo "  none — every bulk in the workload is configured.\n";
+    exit(0);
+}
+
+$guesses = $svc->guessColorsFromAliases($missing);
+
+$created = 0;
+$skippedNoColor = 0;
+$skippedNoSizes = 0;
+foreach ($missing as $code) {
+    $history = $svc->historicalBatchSizes($code);
+    $kept = $filterSizes($history);
+    $color = $guesses[$code] ?? null;
+
+    if ($kept === []) {
+        $skippedNoSizes++;
+        echo "  {$code}: " . ($history === [] ? 'no batch history' : "history too thin [{$evidenceOf($history)}]")
+            . " — not created (will keep using the default batch sizes)\n";
+        continue;
+    }
+    if ($color === null) {
+        $skippedNoColor++;
+        echo "  {$code}: no color guess from aliases — not created, configure manually   [{$evidenceOf($kept)}]\n";
+        continue;
+    }
+
+    $sizes = array_column($kept, 'lbs');
+    rsort($sizes);
+    echo "  {$code}: CREATE color={$color} sizes={$fmt($sizes)}   [{$evidenceOf($kept)}]\n";
+
+    if (!$dryRun) {
+        $db->insert('sched_item_config', [
+            'bulk_item_code' => $code,
+            'color'          => $color,
+            'batch_size_1'   => $sizes[0],
+            'batch_size_2'   => $sizes[1] ?? null,
+            'batch_size_3'   => $sizes[2] ?? null,
+            'batch_size_4'   => $sizes[3] ?? null,
+            'batch_size_5'   => $sizes[4] ?? null,
+        ]);
+    }
+    $created++;
+}
+
+echo "\n" . ($dryRun ? 'Would create' : 'Created') . " {$created} config(s); "
+    . "{$skippedNoSizes} skipped for thin/no history, {$skippedNoColor} for no color guess "
+    . "(both keep their generate-time warnings).\n"
+    . "Review the created colors in Scheduling → Settings — they are alias-prefix guesses.\n";
