@@ -203,6 +203,145 @@ class SchedulingDataService
     }
 
     /* ------------------------------------------------------------------
+     *  Workload (v2) — what the mills actually have to do, from the
+     *  Order Readiness snapshot (Matt, 2026-11-04)
+     * ----------------------------------------------------------------*/
+
+    /**
+     * Demand units for ScheduleEngine::build():
+     *   tier 0  open bulk tickets (RLS/NST — BAT is already milled),
+     *           with materials-readiness and their real pack runs
+     *   tier 1  order shortfalls on make-to-order items (no minimum)
+     *   tier 2  below-minimum production-plan suggestions (negative/below)
+     *   tier 3  near-minimum suggestions (capacity fill)
+     * Suggestions marked scheduled/skip, discontinued items, service items
+     * and items already riding an open ticket are excluded upstream or here.
+     *
+     * @param array<string,string> $packToBulk  pack → bulk (best effort)
+     * @return list<array>
+     */
+    public function workload(array $packToBulk = []): array
+    {
+        $db = $this->db;
+        $demands = [];
+
+        // ── tier 0: open bulk tickets ──────────────────────────────────
+        $readiness = [];
+        try {
+            foreach ($db->fetchAll("SELECT ordr, status FROM or_ticket_readiness") as $r) {
+                $readiness[(int) $r['ordr']] = (string) $r['status'];
+            }
+        } catch (\Throwable $e) {
+            // pre-migration snapshot — tickets just won't carry the flag
+        }
+        $packRuns = [];   // batch ordr => its MFPP pack runs
+        foreach ($db->fetchAll(
+            "SELECT t.batch_ordr, t.item_code, t.qty, i.description
+             FROM or_tickets t LEFT JOIN or_items i ON i.item_code = t.item_code
+             WHERE t.context = 'MFPP' AND t.batch_ordr IS NOT NULL"
+        ) as $p) {
+            $packRuns[(int) $p['batch_ordr']][] = [
+                'pack' => (string) $p['item_code'],
+                'description' => (string) ($p['description'] ?? ''),
+                'lbs' => (float) $p['qty'],
+            ];
+        }
+        foreach ($db->fetchAll(
+            "SELECT t.ordr, t.item_code, t.qty, t.date_required, i.description
+             FROM or_tickets t LEFT JOIN or_items i ON i.item_code = t.item_code
+             WHERE t.context = 'MFBA' AND t.status IN ('RLS','NST')
+             ORDER BY t.date_required, t.ordr"
+        ) as $t) {
+            $demands[] = [
+                'bulk'   => (string) $t['item_code'],
+                'lbs'    => (float) $t['qty'],
+                'tier'   => 0,
+                'source' => 'ticket',
+                'ticket' => (int) $t['ordr'],
+                'due'    => $t['date_required'] ?: null,
+                'materials_short' => ($readiness[(int) $t['ordr']] ?? '') === 'short',
+                'description' => (string) ($t['description'] ?? ''),
+                'packs'  => $packRuns[(int) $t['ordr']] ?? [],
+            ];
+        }
+
+        // ── tier 1: order shortfalls on make-to-order items ────────────
+        // (items with a minimum are tier 2's job — their suggestions
+        // already include open demand in the projection)
+        $mto = [];
+        foreach ($db->fetchAll(
+            "SELECT l.item_code, SUM(c.shortfall) AS short_lbs,
+                    MIN(o.date_required) AS due,
+                    MAX(COALESCE(i.description, '')) AS description
+             FROM or_coverage_results c
+             JOIN or_order_lines l ON l.ord_detail = c.ord_detail
+             LEFT JOIN or_orders o ON o.ordr = c.ordr
+             LEFT JOIN or_items i ON i.item_code = l.item_code
+             WHERE c.status = 'short' AND c.shortfall > 0
+               AND (i.minimum_stock IS NULL)
+               AND COALESCE(i.is_service, 0) = 0
+             GROUP BY l.item_code"
+        ) as $r) {
+            $pack = (string) $r['item_code'];
+            $bulk = $packToBulk[$pack] ?? self::bulkFromCode($pack) ?? $pack;
+            $key  = $bulk;
+            $mto[$key] ??= ['lbs' => 0.0, 'due' => null, 'packs' => []];
+            $mto[$key]['lbs'] += (float) $r['short_lbs'];
+            if ($r['due'] !== null && ($mto[$key]['due'] === null || $r['due'] < $mto[$key]['due'])) {
+                $mto[$key]['due'] = $r['due'];
+            }
+            $mto[$key]['packs'][] = [
+                'pack' => $pack, 'description' => (string) $r['description'],
+                'lbs' => (float) $r['short_lbs'],
+            ];
+        }
+        foreach ($mto as $bulk => $m) {
+            $demands[] = [
+                'bulk' => $bulk, 'lbs' => $m['lbs'], 'tier' => 1, 'source' => 'order',
+                'ticket' => null, 'due' => $m['due'], 'materials_short' => false,
+                'packs' => $m['packs'],
+            ];
+        }
+
+        // ── tiers 2-3: production-plan suggestions ─────────────────────
+        // suggested_qty already credits stock + open tickets − open demand,
+        // is batch-rounded, and the sync already excluded discontinued
+        // items. Items with an open ticket (open_ticket set) ride tier 0.
+        foreach ($db->fetchAll(
+            "SELECT s.item_code, s.severity, s.suggested_qty, s.open_ticket,
+                    m.mark, m.skip_until, i.description
+             FROM or_production_suggestions s
+             LEFT JOIN or_suggestion_marks m ON m.item_code = s.item_code
+             LEFT JOIN or_items i ON i.item_code = s.item_code
+             WHERE s.suggested_qty > 0"
+        ) as $s) {
+            if ($s['open_ticket'] !== null) {
+                continue;   // already cut — it's on the schedule as a ticket
+            }
+            if ($s['mark'] === 'scheduled') {
+                continue;   // production says a ticket is coming
+            }
+            if ($s['mark'] === 'skip'
+                && ($s['skip_until'] === null || $s['skip_until'] >= date('Y-m-d'))) {
+                continue;
+            }
+            $item = (string) $s['item_code'];
+            $bulk = $packToBulk[$item] ?? $item;   // suggestions are usually bulks already
+            $demands[] = [
+                'bulk'   => $bulk,
+                'lbs'    => (float) $s['suggested_qty'],
+                'tier'   => $s['severity'] === 'near' ? 3 : 2,
+                'source' => $s['severity'] === 'near' ? 'near' : 'min',
+                'ticket' => null, 'due' => null, 'materials_short' => false,
+                'description' => (string) ($s['description'] ?? ''),
+                'packs'  => [['pack' => $item, 'description' => (string) ($s['description'] ?? ''), 'lbs' => (float) $s['suggested_qty']]],
+            ];
+        }
+
+        return $demands;
+    }
+
+    /* ------------------------------------------------------------------
      *  Local config (MySQL)
      * ----------------------------------------------------------------*/
 

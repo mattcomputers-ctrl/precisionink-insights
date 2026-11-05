@@ -77,6 +77,13 @@ class ScheduleExporter
                     if (($run['batch_count'] ?? 1) > 1) {
                         $label .= ' (batch ' . $run['batch_no'] . '/' . $run['batch_count'] . ')';
                     }
+                    if (($run['source'] ?? '') === 'ticket' && !empty($run['ticket'])) {
+                        $label .= '  [TICKET ' . $run['ticket']
+                            . (!empty($run['due']) ? ' due ' . $run['due'] : '') . ']';
+                    }
+                    if (!empty($run['materials_short'])) {
+                        $label .= '  [SHORT MATERIALS]';
+                    }
                     if (!empty($run['mto'])) {
                         $label .= '  [MTO]';
                     }
@@ -138,7 +145,13 @@ class ScheduleExporter
                 $sheet->setCellValue("B{$r}", (string) ($u['description'] ?? ''));
                 $sheet->setCellValue("C{$r}", $colorCell);
                 $sheet->setCellValue("D{$r}", (float) $u['lbs']);
-                $sheet->setCellValue("E{$r}", !empty($u['tier1']) ? 'ORDER SHORTFALL' : 'Below min');
+                $priority = match ($u['source'] ?? '') {
+                    'ticket' => 'TICKET ' . ($u['ticket'] ?? '') . (!empty($u['materials_short']) ? ' (SHORT MATERIALS)' : ''),
+                    'order'  => 'ORDER SHORTFALL',
+                    'near'   => 'Near min',
+                    default  => 'Below min',
+                };
+                $sheet->setCellValue("E{$r}", $priority);
                 $sheet->setCellValue("F{$r}", (string) ($u['reason'] ?? ''));
                 $sheet->setCellValue("G{$r}", (float) ($u['popularity'] ?? 0));
                 $sheet->setCellValue("H{$r}", implode(' · ', $packParts));

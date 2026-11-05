@@ -332,6 +332,27 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     reachable). Fixed: .nav-section needed flex:0 0 auto or the flex
     column squashed headers to 0 height once the nav overflowed.
 
+50. **Mill schedule v2 (Matt, 2026-11-04):** the schedule now describes
+    reality instead of re-deriving need from InventoryTotal.QtyOpenToSell
+    (which could not see open bulk tickets, so it re-planned batches
+    already cut AND pretended their mill hours did not exist). Demand now
+    comes from the Order Readiness snapshot in four tiers: 0 = open MFBA
+    tickets RLS/NST (committed; always schedule, exact ticket quantity,
+    no milling gate; missing config = one aggregated warning + worst-case
+    color; unquantified tickets assume one standard batch; sequenced
+    runnable-first, then due date — a materials-short ticket is flagged
+    and placed after runnable ones), 1 = coverage shortfalls on no-minimum
+    items (exact lbs, MTO), 2 = production-plan suggestions negative/below
+    (already credit stock + open tickets - demand, honor marks and
+    99-discontinued), 3 = near-minimum as capacity fill. CMS is now only
+    consulted best-effort (pack-bulk map, popularity, dry derivation) —
+    generation works from the snapshot even during blackouts. Mill
+    mechanics unchanged: color ladder, washup tiers, dry-grind capability
+    and rates with dry-first partitioning, carryover, max batch, milling
+    gate for suggested work, MTO exact chunking. Warning walls are
+    summarized (one line per category, first 8 + count). Engine unit
+    tests added (14 checks).
+
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of

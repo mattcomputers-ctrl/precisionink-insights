@@ -7,61 +7,35 @@ namespace PII\Modules\Scheduling;
 /**
  * ScheduleEngine — builds the weekly production schedule.
  *
- * Inputs: pack positions + min stocks (CMS), item configs (color, passes,
- * batch sizes), mills, color ladder, popularity, enabled days.
+ * v2 (Matt, 2026-11-04): the schedule now describes REALITY instead of
+ * re-deriving need from inventory math. Demand units come pre-assembled
+ * (SchedulingDataService::workload(), built from the Order Readiness
+ * snapshot) in four tiers:
  *
- * Algorithm (documented for tie-out; see SCHEMA_NOTES.md §Scheduling):
+ *   tier 0  OPEN BULK TICKETS (RLS/NST) — committed work already cut in
+ *           CMS. Previously invisible: the old engine re-planned batches
+ *           that were already sitting on the mill-room desk AND pretended
+ *           their hours didn't exist. Always scheduled (no milling gate,
+ *           missing config just warns), exact ticket quantity, sequenced
+ *           by materials-readiness then due date then ladder. A ticket
+ *           short raw materials is flagged and placed after runnable
+ *           tickets — it can't physically run first.
+ *   tier 1  ORDER SHORTFALLS on make-to-order items (coverage engine's
+ *           short lines, items with no minimum) — exact lbs, MTO.
+ *   tier 2  BELOW MINIMUM (production-plan suggestions: already credit
+ *           stock + open tickets − open demand, honor marks and the
+ *           99-discontinued rule) — suggested, pre-rounded quantities.
+ *   tier 3  NEAR MINIMUM — fill leftover capacity only.
  *
- * 1. NEED (per pack):
- *      need_lbs  = max(0, min_stock − open_to_sell)
- *      tier 1 if open_to_sell < 0 (can't cover open customer orders even
- *      counting released production), else tier 2 when need_lbs > 0.
- *    open_to_sell already includes released production (QtyOnOrder), so a
- *    released batch that covers an order keeps the item OUT of tier 1.
- *
- * 1b. MILLING GATE: an item appears on the schedule only when its DIRECT
- *     formula matches a dry-grind trigger or a (non-dry) milling trigger —
- *     formulas matching neither are blends of pre-ground materials and are
- *     excluded — UNLESS a batch exceeds 50 lbs, which always schedules
- *     (big blends still need production planning; small ones are bench work).
- *
- * 2. AGGREGATE to bulk item (recipe map). A bulk is tier 1 if any of its
- *    packs is tier 1. Packs with need but no bulk config → warnings list.
- *
- * 3. BATCHES: make-to-stock bulks (any needy pack has a min stock)
- *    cover need_lbs with whole standard batch sizes (greedy: fill with
- *    the larger size while remaining exceeds it; finish with the
- *    smallest standard size that covers the remainder — rounding UP
- *    into stock is intended for stocked items). MAKE-TO-ORDER bulks
- *    (no needy pack has a min stock) schedule the EXACT needed lbs,
- *    chunked at the largest standard size — no overproduction into
- *    stock nobody ordered. MTO runs are flagged on the schedule.
- *
- * 4. SEQUENCE: tier-1 batches first (sorted by color ladder among
- *    themselves — they all must run, so we still minimise washups),
- *    then tier-2 batches in ladder order. Within each tier, DRY-GRIND
- *    batches place before standard ones: dry work only runs on capable
- *    mills, so those mills focus on dry grinding while any remains and
- *    standard work fills the leftover capacity. When capacity runs out,
- *    tier-2 items are dropped least-popular-first (trailing-91-day
- *    shipped lbs) and reported as unscheduled.
- *
- * 5. PLACEMENT: for each batch in sequence, pick the (mill, start day)
- *    that can run it (mill max batch ≥ batch lbs) with the earliest
- *    completion; ties broken by smallest washup penalty against that
- *    mill's last colour. Standard batches prefer non-dry-capable mills
- *    absolutely — they only land on a dry-grind mill when no other mill
- *    can fit them this week, preserving capable-mill hours for dry
- *    work. All passes stay on the chosen mill.
- *    Batches MAY carry over into following day(s); continuation rows are
- *    flagged carryover so production knows it's the same batch.
- *
- * 6. WASHUPS (charged before a run): same color → like; forward move
- *    down the ladder → next; backward move → deep. First run of the
- *    week on a mill has no washup.
- *
- * Times drive what fits in a day but are NOT exposed on the output —
- * the schedule sets expectations, not stopwatch targets.
+ * Unchanged mill mechanics:
+ *   - MILLING GATE (tiers 1-3): formulas matching neither dry-grind nor
+ *     milling triggers are blends — excluded unless a batch exceeds 50 lbs.
+ *   - SEQUENCE: within each tier, dry-grind batches place before standard
+ *     ones (dry work only runs on capable mills); each partition is
+ *     ladder-sorted to minimise washups.
+ *   - PLACEMENT: earliest completion; ties by washup penalty; standard
+ *     batches prefer non-dry-capable mills absolutely; carryover across
+ *     days supported; washups charged before a run (like/next/deep).
  */
 class ScheduleEngine
 {
@@ -82,23 +56,21 @@ class ScheduleEngine
     }
 
     /**
-     * @param list<array> $packPositions   from SchedulingDataService::packPositions()
-     * @param array<string,string> $packToBulk
-     * @param array<string,array> $itemConfigs   bulk → {color,batch_size_1,batch_size_2}
+     * @param list<array> $demands  from SchedulingDataService::workload():
+     *        {bulk, lbs, tier(0-3), source('ticket'|'order'|'min'|'near'),
+     *         ticket?, due?, materials_short?, description?, packs?}
+     * @param array<string,array> $itemConfigs   bulk → {color,batch_size_1,batch_size_2,not_milled}
      * @param list<array> $mills           sched_mills rows (active)
      * @param array<string,float> $popularity    bulk → trailing shipped lbs
      * @param string $weekStart            Monday date YYYY-MM-DD
      * @param list<int> $enabledDays       7 flags Mon..Sun (1 = run)
      * @param array<string,int> $passesByBulk   derived (dry-grind) passes; absent = 1
-     * @param array<string,bool> $dryByBulk     derived dry-grind flag (display only)
+     * @param array<string,bool> $dryByBulk     derived dry-grind flag
      * @param array<string,string> $bulkDescriptions  bulk → Item.Description
-     * @param array<string,bool> $milledByBulk  derived "needs milling" flag; a bulk
-     *        absent from the map is treated as milled (fail-open). Non-milled
-     *        bulks only schedule when a batch exceeds UNMILLED_MIN_LBS.
+     * @param array<string,bool> $milledByBulk  derived "needs milling"; absent = milled (fail-open)
      */
     public function build(
-        array $packPositions,
-        array $packToBulk,
+        array $demands,
         array $itemConfigs,
         array $mills,
         array $popularity,
@@ -110,50 +82,46 @@ class ScheduleEngine
         array $milledByBulk = []
     ): array {
         $warnings = [];
+        $unconfiguredTickets = [];
+        $noQtyAssumed = [];
+        $noQtySkipped = [];
+        $unconfiguredWork = [];
+        $ladderEnd = count($this->colorOrder);   // unknown colors sort last
 
-        // ── 1+2. need per pack → aggregate to bulk ─────────────────────
-        // Packs WITH a minimum stock are make-to-stock: need tops them
-        // back up to min. Packs WITHOUT one are MAKE-TO-ORDER: need only
-        // arises when open orders exceed stock+production, and only for
-        // the shortfall amount.
-        $bulkNeeds = [];   // bulk => {need_lbs, tier, all_mto, packs:[...]}
-        foreach ($packPositions as $p) {
-            $needLbs = max(0.0, $p['min_stock'] - $p['open_to_sell']);
-            if ($needLbs <= 0) continue;
+        // ── explode demand units into batches ──────────────────────────
+        $batches = [];
+        foreach ($demands as $d) {
+            $bulk = (string) $d['bulk'];
+            $tier = (int) $d['tier'];
+            $cfg  = $itemConfigs[$bulk] ?? null;
 
-            $tier1 = $p['open_to_sell'] < 0;
-            $mto   = $p['min_stock'] <= 0;   // no min stock = made to order
-            $bulk  = $packToBulk[$p['pack']] ?? SchedulingDataService::bulkFromCode($p['pack']);
-            if ($bulk === null) {
-                $warnings[] = "Pack {$p['pack']} has need ({$needLbs} lbs) but no bulk item could be resolved — skipped.";
+            if ($tier === 0) {
+                // Committed ticket: it exists, so it schedules — config
+                // only adds color/size knowledge.
+                $lbs = (float) ($d['lbs'] ?? 0);
+                if ($lbs <= 0 && $cfg !== null && $cfg['batch_size_1'] > 0) {
+                    $lbs = (float) $cfg['batch_size_1'];
+                    $noQtyAssumed[] = "{$d['ticket']} ({$bulk})";
+                } elseif ($lbs <= 0) {
+                    $noQtySkipped[] = "{$d['ticket']} ({$bulk})";
+                    continue;
+                }
+                if ($cfg === null) {
+                    $unconfiguredTickets[] = "{$d['ticket']} ({$bulk})";
+                }
+                $color = $cfg['color'] ?? null;
+                $batches[] = $this->batchRow($d, $bulk, 1, 1, $lbs, $color,
+                    $color !== null ? ($this->colorIndex[$color] ?? $ladderEnd) : $ladderEnd,
+                    $passesByBulk, $dryByBulk, $bulkDescriptions, $popularity);
                 continue;
             }
-            if (strtolower($p['unit']) !== 'lb') {
-                $warnings[] = "Pack {$p['pack']} unit is '{$p['unit']}' (not lb) — treated as lbs, verify.";
-            }
 
-            if (!isset($bulkNeeds[$bulk])) {
-                $bulkNeeds[$bulk] = [
-                    'bulk' => $bulk, 'need_lbs' => 0.0, 'tier1' => false, 'all_mto' => true, 'packs' => [],
-                ];
+            // Tiers 1-3: suggested work — config and milling gate apply.
+            if ((float) $d['lbs'] < 0.5) {
+                continue;   // sub-pound rounding noise, not a batch
             }
-            $bulkNeeds[$bulk]['need_lbs'] += $needLbs;
-            $bulkNeeds[$bulk]['tier1']     = $bulkNeeds[$bulk]['tier1'] || $tier1;
-            $bulkNeeds[$bulk]['all_mto']   = $bulkNeeds[$bulk]['all_mto'] && $mto;
-            $bulkNeeds[$bulk]['packs'][]   = [
-                'pack'        => $p['pack'],
-                'description' => $p['description'],
-                'need_lbs'    => $needLbs,
-                'tier1'       => $tier1,
-            ];
-        }
-
-        // ── 3. explode into batches ────────────────────────────────────
-        $batches = [];   // each: bulk, desc, color, colorIdx, passes, lbs, tier1, popularity, packs share
-        foreach ($bulkNeeds as $bulk => $bn) {
-            $cfg = $itemConfigs[$bulk] ?? null;
             if ($cfg === null) {
-                $warnings[] = "Bulk item {$bulk} has need (" . round($bn['need_lbs']) . " lbs across " . count($bn['packs']) . " pack(s)) but no scheduling config (color/batch size) — NOT scheduled. Configure it in Scheduling → Settings.";
+                $unconfiguredWork[] = "{$bulk} (" . round((float) $d['lbs']) . " lbs, {$d['source']})";
                 continue;
             }
             if (!empty($cfg['not_milled'])) {
@@ -164,120 +132,79 @@ class ScheduleEngine
                 continue;
             }
 
+            // Chunk at the largest standard size; the last chunk is exact.
+            // (Below-minimum quantities arrive pre-rounded by the production
+            // plan; order shortfalls are make-to-order and must stay exact.)
             $sizes = [$cfg['batch_size_1']];
-            if (!empty($cfg['batch_size_2'])) $sizes[] = (float) $cfg['batch_size_2'];
-            rsort($sizes);                       // sizes[0] = largest
-
+            if (!empty($cfg['batch_size_2'])) {
+                $sizes[] = (float) $cfg['batch_size_2'];
+            }
+            rsort($sizes);
             $batchLbsList = [];
-            $remaining = $bn['need_lbs'];
-            if (!empty($bn['all_mto'])) {
-                // MAKE-TO-ORDER: schedule the exact needed quantity — no
-                // rounding up into stock nobody asked for. Chunk at the
-                // largest standard batch size; the last chunk is exact.
-                while ($remaining > 1e-9) {
-                    $chunk = min($remaining, $sizes[0]);
-                    $batchLbsList[] = round($chunk, 1);
-                    $remaining -= $chunk;
-                }
-            } else {
-                // Make-to-stock: whole standard batches, rounding UP —
-                // overshoot builds stock for a stocked item, which is fine.
-                while ($remaining > 1e-9) {
-                    if ($remaining > $sizes[0]) {
-                        $batchLbsList[] = $sizes[0];
-                        $remaining -= $sizes[0];
-                    } else {
-                        // Smallest standard size that covers the remainder
-                        $chosen = $sizes[0];
-                        foreach ($sizes as $s) {
-                            if ($s >= $remaining && $s <= $chosen) $chosen = $s;
-                        }
-                        if ($chosen < $remaining) $chosen = $sizes[0];
-                        $batchLbsList[] = $chosen;
-                        $remaining = 0.0;
-                    }
-                }
+            $remaining = (float) $d['lbs'];
+            while ($remaining > 1e-9) {
+                $chunk = min($remaining, $sizes[0]);
+                $batchLbsList[] = round($chunk, 1);
+                $remaining -= $chunk;
             }
 
-            // Milling gate: formulas that match neither trigger list are
-            // blends of pre-ground materials — bench work, not mill work —
-            // UNLESS a batch is big enough (> UNMILLED_MIN_LBS) that it
-            // needs production scheduling regardless.
+            // Milling gate: blends of pre-ground materials are bench work,
+            // not mill work — unless the batch is big enough to plan anyway.
             $isMilled = array_key_exists($bulk, $milledByBulk) ? (bool) $milledByBulk[$bulk] : true;
-            if (!$isMilled && max($batchLbsList) <= self::UNMILLED_MIN_LBS) {
-                continue;   // small blend — off the schedule entirely
+            if (!$isMilled && ($batchLbsList === [] || max($batchLbsList) <= self::UNMILLED_MIN_LBS)) {
+                continue;
             }
 
-            // Pack share: distribute each batch's lbs across packs pro-rata
-            // to their remaining need (assigned batch by batch below).
-            $totalBatchLbs = array_sum($batchLbsList);
             foreach ($batchLbsList as $i => $lbs) {
-                $batches[] = [
-                    'id'         => $bulk . '#' . ($i + 1),
-                    'bulk'       => $bulk,
-                    'description'=> $bulkDescriptions[$bulk] ?? '',
-                    'batch_no'   => $i + 1,
-                    'batch_count'=> count($batchLbsList),
-                    'color'      => $cfg['color'],
-                    'color_idx'  => $this->colorIndex[$cfg['color']],
-                    'passes'     => max(1, (int) ($passesByBulk[$bulk] ?? 1)),
-                    'dry_grind'  => (bool) ($dryByBulk[$bulk] ?? false),
-                    'mto'        => !empty($bn['all_mto']),
-                    'lbs'        => $lbs,
-                    'tier1'      => $bn['tier1'],
-                    'popularity' => $popularity[$bulk] ?? 0.0,
-                    'packs_all'  => $bn['packs'],
-                    'total_need' => $bn['need_lbs'],
-                    'total_prod' => $totalBatchLbs,
-                ];
+                $batches[] = $this->batchRow($d, $bulk, $i + 1, count($batchLbsList), $lbs,
+                    $cfg['color'], $this->colorIndex[$cfg['color']],
+                    $passesByBulk, $dryByBulk, $bulkDescriptions, $popularity);
             }
         }
 
-        // Pack breakdown per batch: pro-rata to pack need share of the bulk's
-        // total production (overshoot lands proportionally = stock build).
-        foreach ($batches as &$b) {
-            $breakdown = [];
-            foreach ($b['packs_all'] as $pk) {
-                $share = $b['total_need'] > 0 ? $pk['need_lbs'] / $b['total_need'] : 0;
-                $breakdown[] = [
-                    'pack'        => $pk['pack'],
-                    'description' => $pk['description'],
-                    'lbs'         => round($b['lbs'] * $share, 1),
-                ];
+        $summarize = function (array $list, string $text) use (&$warnings): void {
+            if ($list === []) {
+                return;
             }
-            $b['pack_breakdown'] = $breakdown;
-            unset($b['packs_all']);
+            $shown = array_slice($list, 0, 8);
+            $more = count($list) - count($shown);
+            $warnings[] = count($list) . ' ' . $text . ': ' . implode(', ', $shown)
+                . ($more > 0 ? " and {$more} more" : '') . '.';
+        };
+        $summarize($unconfiguredWork, 'item(s) need production but have no scheduling config (color/batch size) — NOT scheduled; configure them in Scheduling → Settings');
+        $summarize($noQtyAssumed, 'open ticket(s) have no quantity in CMS — assumed one standard batch each');
+        $summarize($noQtySkipped, 'open ticket(s) have no quantity in CMS and no batch size configured — NOT scheduled');
+        if ($unconfiguredTickets !== []) {
+            $shown = array_slice($unconfiguredTickets, 0, 8);
+            $more = count($unconfiguredTickets) - count($shown);
+            $warnings[] = count($unconfiguredTickets) . ' open ticket(s) have no scheduling config — scheduled with '
+                . 'unknown color (worst-case washups): ' . implode(', ', $shown)
+                . ($more > 0 ? " and {$more} more" : '') . '. Configure them in Scheduling → Settings.';
         }
-        unset($b);
 
-        // ── 4. sequence ────────────────────────────────────────────────
-        // Within each priority tier, DRY-GRIND batches place first: dry
-        // work can only run on capable mills, so those mills must load up
-        // on it while any remains — otherwise ladder-earlier standard
-        // batches would eat their hours and strand dry grinds in
-        // Unscheduled. Standard work then fills remaining capacity
-        // anywhere. Each partition is still ladder-sorted.
-        $ladderSort = function (array $a, array $b): int {
-            return [$a['color_idx'], $a['bulk'], $a['batch_no']] <=> [$b['color_idx'], $b['bulk'], $b['batch_no']];
-        };
+        // ── sequence ───────────────────────────────────────────────────
+        // Partitions: (tier 0..3) × (dry first, then standard). Tier-0
+        // sorts runnable-first, then due date, then ladder; suggested
+        // tiers sort pure ladder (minimise washups — they all "can" wait).
+        $sortTier0 = fn(array $a, array $b): int =>
+            [(int) $a['materials_short'], $a['due'] ?? '9999', $a['color_idx'], $a['bulk']]
+            <=> [(int) $b['materials_short'], $b['due'] ?? '9999', $b['color_idx'], $b['bulk']];
+        $ladderSort = fn(array $a, array $b): int =>
+            [$a['color_idx'], $a['bulk'], $a['batch_no']] <=> [$b['color_idx'], $b['bulk'], $b['batch_no']];
 
-        $partition = function (bool $tier1, bool $dry) use ($batches, $ladderSort): array {
-            $part = array_values(array_filter(
-                $batches,
-                fn($b) => $b['tier1'] === $tier1 && (bool) ($b['dry_grind'] ?? false) === $dry
-            ));
-            usort($part, $ladderSort);
-            return $part;
-        };
+        $sequence = [];
+        for ($tier = 0; $tier <= 3; $tier++) {
+            foreach ([true, false] as $dry) {
+                $part = array_values(array_filter(
+                    $batches,
+                    fn($b) => $b['tier'] === $tier && (bool) ($b['dry_grind'] ?? false) === $dry
+                ));
+                usort($part, $tier === 0 ? $sortTier0 : $ladderSort);
+                $sequence = array_merge($sequence, $part);
+            }
+        }
 
-        $sequence = array_merge(
-            $partition(true,  true),   // tier-1 dry grind
-            $partition(true,  false),  // tier-1 standard
-            $partition(false, true),   // tier-2 dry grind
-            $partition(false, false)   // tier-2 standard
-        );
-
-        // ── 5. placement ───────────────────────────────────────────────
+        // ── placement ──────────────────────────────────────────────────
         $days = [];
         for ($i = 0; $i < 7; $i++) {
             $days[] = [
@@ -287,7 +214,6 @@ class ScheduleEngine
             ];
         }
 
-        // Per-mill state: remaining hours per day, last color idx, per-day run list
         $millState = [];
         foreach ($mills as $m) {
             $remain = [];
@@ -297,26 +223,20 @@ class ScheduleEngine
             $millState[$m['id']] = [
                 'mill'      => $m,
                 'remain'    => $remain,
-                'last_color'=> null,   // ladder idx of last batch placed
+                'last_color'=> null,
                 'runs'      => array_fill(0, 7, []),
             ];
         }
 
         $unscheduled = [];
-
         foreach ($sequence as $batch) {
-            $placed = $this->placeBatch($batch, $millState, $days);
-            if (!$placed) {
+            if (!$this->placeBatch($batch, $millState, $days)) {
                 $batch['reason'] = $this->unscheduledReason($batch, $mills);
                 $unscheduled[] = $batch;
             }
         }
-
-        // If tier-2 got squeezed out, drop least-popular first is implicit:
-        // sequence order was ladder-order; batches that failed to place are the
-        // unscheduled ones. Re-sort unscheduled so the REPORT shows most-popular
-        // first (what production would most want to squeeze in).
-        usort($unscheduled, fn($a, $b) => $b['popularity'] <=> $a['popularity']);
+        usort($unscheduled, fn($a, $b) =>
+            [$a['tier'], -$b['popularity']] <=> [$b['tier'], -$a['popularity']]);
 
         // ── output ─────────────────────────────────────────────────────
         $millsOut = [];
@@ -345,9 +265,13 @@ class ScheduleEngine
             'days'        => $days,
             'mills'       => $millsOut,
             'unscheduled' => array_map(fn($b) => [
-                'bulk' => $b['bulk'], 'lbs' => $b['lbs'], 'color' => $b['color'],
+                'bulk' => $b['bulk'], 'lbs' => $b['lbs'], 'color' => $b['color'] ?? '(unknown)',
                 'description' => $b['description'] ?? '',
-                'tier1' => $b['tier1'], 'popularity' => round($b['popularity']),
+                'tier' => $b['tier'], 'source' => $b['source'],
+                'ticket' => $b['ticket'], 'due' => $b['due'],
+                'materials_short' => $b['materials_short'],
+                'tier1' => $b['tier'] <= 1,
+                'popularity' => round($b['popularity']),
                 'dry_grind' => $b['dry_grind'] ?? false,
                 'mto' => $b['mto'] ?? false,
                 'reason' => $b['reason'] ?? 'no capacity this week',
@@ -358,48 +282,83 @@ class ScheduleEngine
         ];
     }
 
+    /** One batch row from a demand unit. */
+    private function batchRow(
+        array $d, string $bulk, int $no, int $count, float $lbs,
+        ?string $color, int $colorIdx,
+        array $passesByBulk, array $dryByBulk, array $bulkDescriptions, array $popularity
+    ): array {
+        // Pack breakdown: committed tickets carry their real pack runs;
+        // suggested batches pro-rate the listed packs by need share.
+        $breakdown = [];
+        $packs = $d['packs'] ?? [];
+        $totalNeed = array_sum(array_map(fn($p) => (float) ($p['lbs'] ?? 0), $packs));
+        foreach ($packs as $p) {
+            $breakdown[] = [
+                'pack'        => (string) $p['pack'],
+                'description' => (string) ($p['description'] ?? ''),
+                'lbs'         => (int) $d['tier'] === 0
+                    ? round((float) ($p['lbs'] ?? 0), 1)
+                    : round($totalNeed > 0 ? $lbs * ((float) $p['lbs'] / $totalNeed) : 0, 1),
+            ];
+        }
+
+        return [
+            'id'          => ($d['ticket'] ?? $bulk) . '#' . $no,
+            'bulk'        => $bulk,
+            'description' => $d['description'] ?? ($bulkDescriptions[$bulk] ?? ''),
+            'batch_no'    => $no,
+            'batch_count' => $count,
+            'color'       => $color,
+            'color_idx'   => $colorIdx,
+            'passes'      => max(1, (int) ($passesByBulk[$bulk] ?? 1)),
+            'dry_grind'   => (bool) ($dryByBulk[$bulk] ?? false),
+            'tier'        => (int) $d['tier'],
+            'source'      => (string) $d['source'],
+            'ticket'      => $d['ticket'] ?? null,
+            'due'         => $d['due'] ?? null,
+            'materials_short' => (bool) ($d['materials_short'] ?? false),
+            'mto'         => $d['source'] === 'order',
+            'lbs'         => $lbs,
+            'popularity'  => $popularity[$bulk] ?? 0.0,
+            'pack_breakdown' => $breakdown,
+        ];
+    }
+
     /**
      * Try to place a batch on the best (mill, day). Mutates $millState.
      * Supports carryover: a batch may span consecutive enabled days.
      */
     private function placeBatch(array $batch, array &$millState, array $days): bool
     {
-        $best = null;   // [millId, startDay, endDay, washupTier, completionKey]
+        $best = null;
 
         foreach ($millState as $millId => $st) {
             $m = $st['mill'];
             if (!empty($batch['dry_grind']) && empty($m['dry_grind_capable'])) {
-                continue;   // dry-grind ink on a mill that can't dry grind
+                continue;
             }
             if ((float) $m['max_batch_lbs'] > 0 && $batch['lbs'] > (float) $m['max_batch_lbs']) {
-                continue;   // batch too big for this mill
+                continue;
             }
-            // Mode-specific throughput: dry grinding runs at its own rate
             $rate = !empty($batch['dry_grind'])
                 ? (float) ($m['lbs_per_hour_dry'] ?? 0)
                 : (float) $m['lbs_per_hour'];
             if ($rate <= 0) continue;
 
-            // Washup before this batch on this mill
             $washTier = $this->washupTier($st['last_color'], $batch['color_idx']);
             $washHours = $this->washupHours($m, $washTier);
 
             $millHours = ($batch['lbs'] * $batch['passes']) / $rate;
             $totalHours = $millHours + $washHours;
 
-            // Find earliest start day with SOME room, then consume across days
             for ($d = 0; $d < 7; $d++) {
                 if ($st['remain'][$d] < self::MIN_SPLIT_HOURS) continue;
 
-                // Simulate consumption from day $d forward
                 $needed = $totalHours;
                 $endDay = null;
                 for ($e = $d; $e < 7 && $needed > 1e-9; $e++) {
                     if ($st['remain'][$e] <= 0) {
-                        // A disabled/full day in the middle breaks the carryover chain
-                        // only if nothing was consumed yet on later days — we allow
-                        // skipping fully-booked or disabled days (production resumes
-                        // next run day).
                         continue;
                     }
                     $take = min($st['remain'][$e], $needed);
@@ -407,14 +366,10 @@ class ScheduleEngine
                     $endDay = $e;
                 }
                 if ($needed > 1e-9) {
-                    break;   // doesn't fit starting at $d (or any later day — week full for this mill)
+                    break;
                 }
 
-                // Standard batches prefer NON-dry-capable mills absolutely:
-                // capable-mill hours are the scarce resource for dry work,
-                // so a standard batch only lands there when no non-capable
-                // mill can fit it this week. (Dry batches only ever see
-                // capable mills, so the penalty is always 0 for them.)
+                // Standard batches prefer NON-dry-capable mills absolutely.
                 $capablePenalty = (empty($batch['dry_grind']) && !empty($m['dry_grind_capable'])) ? 1 : 0;
 
                 $completionKey = [$capablePenalty, $endDay, $d, $washTier];
@@ -425,7 +380,7 @@ class ScheduleEngine
                         'mill_hours' => $millHours, 'key' => $completionKey,
                     ];
                 }
-                break;   // earliest feasible start on this mill found; try next mill
+                break;
             }
         }
 
@@ -433,7 +388,6 @@ class ScheduleEngine
             return false;
         }
 
-        // Commit: consume hours + append run rows (continuation rows flagged carryover)
         $st = &$millState[$best['mill_id']];
         $needed = $best['mill_hours'] + $best['wash_hours'];
         $first  = true;
@@ -449,12 +403,17 @@ class ScheduleEngine
                 'description'    => $batch['description'] ?? '',
                 'batch_no'       => $batch['batch_no'],
                 'batch_count'    => $batch['batch_count'],
-                'color'          => $batch['color'],
+                'color'          => $batch['color'] ?? '(unknown)',
                 'lbs'            => $batch['lbs'],
                 'passes'         => $batch['passes'],
                 'dry_grind'      => $batch['dry_grind'] ?? false,
                 'mto'            => $batch['mto'] ?? false,
-                'tier1'          => $batch['tier1'],
+                'tier'           => $batch['tier'],
+                'source'         => $batch['source'],
+                'ticket'         => $batch['ticket'],
+                'due'            => $batch['due'],
+                'materials_short'=> $batch['materials_short'],
+                'tier1'          => $batch['tier'] <= 1,
                 'carryover'      => !$first,
                 'washup'         => $first ? $best['wash_tier'] : null,
                 'pack_breakdown' => $batch['pack_breakdown'],
@@ -498,8 +457,8 @@ class ScheduleEngine
     {
         if ($lastColorIdx === null)         return 'none';
         if ($newColorIdx === $lastColorIdx) return 'like';
-        if ($newColorIdx > $lastColorIdx)   return 'next';   // any forward move down the ladder
-        return 'deep';                                        // backward / restart
+        if ($newColorIdx > $lastColorIdx)   return 'next';
+        return 'deep';
     }
 
     private function washupHours(array $mill, string $tier): float

@@ -7,7 +7,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
 ?>
 
 <?php if (!$hasCms): ?>
-    <div class="alert alert-warning"><strong>CMS database not configured.</strong> Scheduling needs the CMS connection.</div>
+    <div class="alert alert-info"><strong>CMS is not configured.</strong> Schedules build from the latest sync; dry-grind derivation and popularity are skipped.</div>
 <?php endif; ?>
 
 <?php if (empty($mills)): ?>
@@ -26,8 +26,10 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         <div>
             <h2 class="card-title">Generate weekly schedule</h2>
             <div class="card-subtitle">
-                Need is driven by open customer orders + minimum stock vs. what's on hand and already released to production.
-                Runs are sequenced by the color ladder to minimize washups; order shortfalls jump the line.
+                Open batch tickets schedule first (committed work), then order shortfalls, then the
+                production plan's below-minimum batches, with near-minimum items filling leftover capacity.
+                Runs are sequenced by the color ladder to minimize washups; tickets short materials are
+                flagged and placed after runnable ones.
             </div>
         </div>
         <div class="flex gap-1 items-center">
@@ -58,7 +60,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         </div>
         <div class="form-group" style="flex:0 0 auto;">
             <label>&nbsp;</label>
-            <button type="button" id="sched-generate" class="btn btn-primary" <?= empty($mills) || !$hasCms ? 'disabled' : '' ?>>
+            <button type="button" id="sched-generate" class="btn btn-primary" <?= empty($mills) ? 'disabled' : '' ?>>
                 Generate schedule
             </button>
         </div>
@@ -104,7 +106,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
             .join(',');
 
         statusEl.style.display = '';
-        statusText.textContent = 'Generating — querying CMS (can take ~30s)…';
+        statusText.textContent = 'Generating from the latest sync…';
         grid.innerHTML = ''; warnEl.innerHTML = ''; unschedEl.innerHTML = '';
 
         try {
@@ -178,7 +180,11 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
                 uh += '<tr><td><strong>' + esc(u.bulk) + '</strong>' + (u.dry_grind ? ' <span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);">DG</span>' : '') + '</td>';
                 uh += '<td class="text-muted">' + esc(u.description || '') + '</td><td>' + esc(u.color) + '</td>';
                 uh += '<td class="text-right">' + Number(u.lbs).toLocaleString() + '</td>';
-                uh += '<td>' + (u.tier1 ? '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);">ORDER SHORTFALL</span>' : '<span class="pill">below min</span>') + '</td>';
+                let pr = '<span class="pill">below min</span>';
+                if (u.source === 'ticket') pr = '<span class="pill" style="background:rgba(74,144,217,0.18);color:var(--primary-light);">TICKET ' + esc(u.ticket) + '</span>' + (u.materials_short ? ' <span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);">⚠ materials</span>' : '');
+                else if (u.source === 'order') pr = '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);">ORDER SHORTFALL</span>';
+                else if (u.source === 'near') pr = '<span class="pill">near min</span>';
+                uh += '<td>' + pr + '</td>';
                 uh += '<td class="text-muted">' + esc(u.reason || '') + '</td>';
                 uh += '<td class="text-right">' + Number(u.popularity).toLocaleString() + '</td></tr>';
             });
@@ -199,7 +205,11 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         const colorDot = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + colorCss(run.color) + ';margin-right:0.35rem;vertical-align:middle;"></span>';
         let badge = '';
         if (run.carryover) badge = '<span class="pill" style="background:rgba(241,196,15,0.2);color:var(--warn);margin-left:0.3rem;">carryover</span>';
-        else if (run.tier1) badge = '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);margin-left:0.3rem;">shortfall</span>';
+        else if (run.source === 'ticket') badge = '<span class="pill" style="background:rgba(74,144,217,0.18);color:var(--primary-light);margin-left:0.3rem;" title="Committed work — ticket already cut in CMS' + (run.due ? ', due ' + esc(run.due) : '') + '">🎫 ' + esc(run.ticket) + '</span>';
+        else if (run.source === 'order') badge = '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);margin-left:0.3rem;" title="Open customer orders are short this">ORDER</span>';
+        else if (run.source === 'near') badge = '<span class="pill" style="margin-left:0.3rem;" title="Near minimum — fills leftover capacity">near min</span>';
+        else badge = '<span class="pill" style="margin-left:0.3rem;" title="Below minimum stock (production plan)">below min</span>';
+        if (run.materials_short && !run.carryover) badge += '<span class="pill" style="background:rgba(231,76,60,0.2);color:var(--bad);margin-left:0.3rem;" title="Short raw materials — cannot run until they arrive">⚠ materials</span>';
         if (run.dry_grind && !run.carryover) badge += '<span class="pill" style="background:rgba(74,144,217,0.2);color:var(--primary-light);margin-left:0.3rem;" title="Dry grind — only runs on dry-grind-capable mills">DG</span>';
         if (run.mto && !run.carryover) badge += '<span class="pill" style="background:rgba(46,204,113,0.18);color:var(--good);margin-left:0.3rem;" title="Made to order — exact quantity for open orders, no stock build">MTO</span>';
 

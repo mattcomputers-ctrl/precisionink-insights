@@ -45,10 +45,6 @@ class SchedulingController
         $daysCsv = (string) ($_GET['days'] ?? '1,1,1,1,1,0,0');
         $enabledDays = array_map('intval', array_pad(explode(',', $daysCsv), 7, 0));
 
-        if (!CMSDatabase::isConfigured()) {
-            json_response(['error' => 'CMS database not configured'], 500);
-        }
-
         try {
             $svc = new SchedulingDataService();
 
@@ -57,24 +53,47 @@ class SchedulingController
                 json_response(['error' => 'No active mills configured. Add equipment in Scheduling → Settings.'], 400);
             }
 
-            $packPositions = $svc->packPositions();
-            $ptb           = $svc->packToBulkMap();
-            $packToBulk    = $ptb['map'];
-            $bulkDescs     = $ptb['descriptions'];
-            $itemConfigs   = $svc->itemConfigs();
-            $popularity    = $svc->popularityByBulk($packToBulk);
+            $itemConfigs = $svc->itemConfigs();
 
-            // Dry-grind derivation only matters for schedulable (configured)
-            // bulks — unconfigured items warn and never schedule.
-            $derived = $svc->derivePasses(array_keys($itemConfigs));
+            // The workload comes from the Order Readiness snapshot (open
+            // tickets, order shortfalls, the production plan) — CMS is only
+            // consulted for pack→bulk mapping, popularity and dry-grind
+            // derivation, all best-effort.
+            $cmsWarnings = [];
+            $packToBulk = [];
+            $bulkDescs = [];
+            $popularity = [];
+            $derived = ['passes' => [], 'dry' => [], 'milled' => []];
+            if (CMSDatabase::isConfigured()) {
+                try {
+                    $ptb = $svc->packToBulkMap();
+                    $packToBulk = $ptb['map'];
+                    $bulkDescs  = $ptb['descriptions'];
+                    $popularity = $svc->popularityByBulk($packToBulk);
+                    $derived    = $svc->derivePasses(array_keys($itemConfigs));
+                } catch (\Throwable $e) {
+                    $cmsWarnings[] = 'CMS is unavailable right now — scheduling from the latest sync. '
+                        . 'Dry-grind derivation and popularity ranking are skipped this run.';
+                }
+            } else {
+                $cmsWarnings[] = 'CMS is not configured — scheduling from the latest sync; dry-grind derivation and popularity are skipped.';
+            }
+
+            $workload = $svc->workload($packToBulk);
+            if ($workload === []) {
+                $cmsWarnings[] = 'The snapshot has no open tickets and nothing on the production plan — run a sync if this looks wrong.';
+            }
 
             $engine   = new ScheduleEngine($svc->colorOrder());
             $schedule = $engine->build(
-                $packPositions, $packToBulk, $itemConfigs,
+                $workload, $itemConfigs,
                 $mills, $popularity, $weekStart, $enabledDays,
                 $derived['passes'], $derived['dry'], $bulkDescs,
                 $derived['milled']
             );
+            if (!empty($cmsWarnings)) {
+                $schedule['warnings'] = array_merge($cmsWarnings, $schedule['warnings'] ?? []);
+            }
 
             // Config foot-gun warnings — surface silently-inert trigger setups.
             $preWarnings = [];
