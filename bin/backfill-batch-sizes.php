@@ -160,7 +160,7 @@ if ($missing === []) {
     exit(0);
 }
 
-$guesses = $svc->guessColorsFromAliases($missing);
+$guesses = $svc->guessColors($missing);   // alias prefix first, description words fill the gaps
 
 $created = 0;
 $skippedNoColor = 0;
@@ -178,7 +178,7 @@ foreach ($missing as $code) {
     }
     if ($color === null) {
         $skippedNoColor++;
-        echo "  {$code}: no color guess from aliases — not created, configure manually   [{$evidenceOf($kept)}]\n";
+        echo "  {$code}: no color guess from aliases or description — not created, configure manually   [{$evidenceOf($kept)}]\n";
         continue;
     }
 
@@ -203,4 +203,4 @@ foreach ($missing as $code) {
 echo "\n" . ($dryRun ? 'Would create' : 'Created') . " {$created} config(s); "
     . "{$skippedNoSizes} skipped for thin/no history, {$skippedNoColor} for no color guess "
     . "(both keep their generate-time warnings).\n"
-    . "Review the created colors in Scheduling → Settings — they are alias-prefix guesses.\n";
+    . "Review the created colors in Scheduling → Settings — they are alias-prefix/description guesses.\n";

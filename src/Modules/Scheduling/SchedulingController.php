@@ -94,7 +94,7 @@ class SchedulingController
             )));
             if ($unconfigured !== [] && CMSDatabase::isConfigured()) {
                 try {
-                    $guessedColors = $svc->guessColorsFromAliases($unconfigured);
+                    $guessedColors = $svc->guessColors($unconfigured);
                 } catch (\Throwable $e) {
                     // CMS down — colors stay unknown; already warned above.
                 }
@@ -475,11 +475,13 @@ class SchedulingController
             $history = $svc->historicalBatchSizes($code);   // most frequent first
             $sizes = array_column($history, 'lbs');
             rsort($sizes);
-            $guess = $svc->guessColorsFromAliases([$code]);
+            $fromAlias = $svc->guessColorsFromAliases([$code]);
+            $guess = $fromAlias + $svc->guessColorsFromDescriptions(isset($fromAlias[$code]) ? [] : [$code]);
             json_response([
                 'sizes' => $sizes,
                 'history' => $history,
                 'color' => $guess[$code] ?? null,
+                'color_source' => isset($fromAlias[$code]) ? 'alias prefix' : (isset($guess[$code]) ? 'description' : null),
                 'from_history' => $sizes !== [],
                 'default_sizes' => $svc->defaultBatchSizes(),
             ]);

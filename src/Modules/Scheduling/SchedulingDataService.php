@@ -488,6 +488,86 @@ class SchedulingDataService
         return $out;
     }
 
+    /**
+     * Description color words (Matt, 2026-11-05): most item descriptions
+     * name the color outright ("…HEPTA 7/D BLACK", "PROCESS YELLOW").
+     * Priority order — first phrase found in the description wins, so
+     * "OPAQUE WHITE" beats "WHITE" and "WARM RED" beats "RED".
+     * Mappings for ink terms: CYAN → blue, MAGENTA → red (rubine family),
+     * GRAY → black, VARNISH/CLEAR/EXTENDER → extender.
+     */
+    public const DESCRIPTION_COLOR_PHRASES = [
+        'OPAQUE WHITE' => 'opaque white',
+        'WARM RED'     => 'warm red',
+        'REFLEX BLUE'  => 'reflex blue',
+        'MAGENTA'      => 'red',
+        'CYAN'         => 'blue',
+        'VIOLET'       => 'violet',
+        'PURPLE'       => 'violet',
+        'YELLOW'       => 'yellow',
+        'ORANGE'       => 'orange',
+        'GREEN'        => 'green',
+        'BROWN'        => 'brown',
+        'BLACK'        => 'black',
+        'GRAY'         => 'black',
+        'GREY'         => 'black',
+        'WHITE'        => 'opaque white',
+        'RED'          => 'red',
+        'BLUE'         => 'blue',
+        'EXTENDER'     => 'extender',
+        'VARNISH'      => 'extender',
+        'CLEAR'        => 'extender',
+    ];
+
+    /**
+     * Guess ladder colors from the bulk items' own descriptions.
+     * Whole-word matches only ("REDUCER" never matches RED).
+     *
+     * @param list<string> $bulkCodes
+     * @return array<string,string> bulk → guessed ladder color
+     */
+    public function guessColorsFromDescriptions(array $bulkCodes): array
+    {
+        if ($bulkCodes === []) {
+            return [];
+        }
+        $out = [];
+        foreach (array_chunk($bulkCodes, 200) as $chunk) {
+            $ph = implode(',', array_fill(0, count($chunk), '?'));
+            $rows = $this->cms()->fetchAll("
+                SELECT ItemCode, Description
+                FROM CMS.dbo.Item
+                WHERE ItemCode IN ({$ph})", $chunk);
+            foreach ($rows as $r) {
+                $desc = strtoupper((string) $r['Description']);
+                foreach (self::DESCRIPTION_COLOR_PHRASES as $phrase => $color) {
+                    if (preg_match('/\b' . str_replace(' ', '\s+', preg_quote($phrase, '/')) . '\b/', $desc)) {
+                        $out[(string) $r['ItemCode']] = $color;
+                        break;
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Combined color guess: alias prefix first (Matt's primary signal),
+     * description words fill the gaps.
+     *
+     * @param list<string> $bulkCodes
+     * @return array<string,string> bulk → guessed ladder color
+     */
+    public function guessColors(array $bulkCodes): array
+    {
+        $out = $this->guessColorsFromAliases($bulkCodes);
+        $missing = array_values(array_diff($bulkCodes, array_keys($out)));
+        foreach ($this->guessColorsFromDescriptions($missing) as $bulk => $color) {
+            $out[$bulk] = $color;
+        }
+        return $out;
+    }
+
     /* ------------------------------------------------------------------
      *  Dry-grind pass derivation
      * ----------------------------------------------------------------*/

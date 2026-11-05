@@ -373,6 +373,12 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
       verified against live aliases, e.g. 2UK0189 black, 2UY yellow).
       Guessed colors apply to unconfigured tickets too (better washup
       ordering than ladder-end), and are marked "?" in warnings.
+      **Description words fill the gaps** (Matt, 2026-11-05): when no
+      alias votes, the bulk's own description is scanned for color words
+      in priority order (OPAQUE WHITE before WHITE, WARM RED before RED),
+      whole words only. Ink-term mappings: CYAN→blue, MAGENTA→red
+      (rubine family), GRAY→black, VARNISH/CLEAR/EXTENDER→extender.
+      Alias prefix always wins when both exist.
     - **Double-click a scheduled run to change its batch size** (the
       item's standard sizes are offered; any positive lbs accepted).
       The run is tagged `manual_override` + an "edited" pill, its pack

@@ -204,14 +204,14 @@ class ScheduleEngine
                 . ($more > 0 ? " and {$more} more" : '') . '.';
         };
         $summarize($unconfiguredWork, 'item(s) need production but have no scheduling config (color/batch size) and no default batch sizes are set — NOT scheduled; configure them in Scheduling → Settings');
-        $summarize($defaultedWork, 'item(s) have no scheduling config — scheduled with the default batch sizes and a color guessed from alias prefixes (? = guessed; blank = unknown, worst-case washups). Configure them in Scheduling → Settings');
+        $summarize($defaultedWork, 'item(s) have no scheduling config — scheduled with the default batch sizes and a color guessed from alias prefixes or the item description (? = guessed; blank = unknown, worst-case washups). Configure them in Scheduling → Settings');
         $summarize($noQtyAssumed, 'open ticket(s) have no quantity in CMS — assumed one standard batch each');
         $summarize($noQtySkipped, 'open ticket(s) have no quantity in CMS and no batch size configured — NOT scheduled');
         if ($unconfiguredTickets !== []) {
             $shown = array_slice($unconfiguredTickets, 0, 8);
             $more = count($unconfiguredTickets) - count($shown);
             $warnings[] = count($unconfiguredTickets) . ' open ticket(s) have no scheduling config — scheduled with '
-                . 'a color guessed from alias prefixes where possible (otherwise worst-case washups): ' . implode(', ', $shown)
+                . 'a color guessed from alias prefixes or the item description where possible (otherwise worst-case washups): ' . implode(', ', $shown)
                 . ($more > 0 ? " and {$more} more" : '') . '. Configure them in Scheduling → Settings.';
         }
 

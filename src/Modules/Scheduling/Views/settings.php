@@ -485,7 +485,7 @@
                 const sel = document.getElementById('add-color');
                 if (sel && [...sel.options].some(o => o.value === d.color)) {
                     sel.value = d.color;
-                    notes.push('color guessed from alias prefix: ' + d.color);
+                    notes.push('color guessed from ' + (d.color_source || 'alias prefix') + ': ' + d.color);
                 }
             }
             if (notes.length) {
