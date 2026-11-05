@@ -149,6 +149,60 @@ $s = $e->build(
 );
 t_check(count($firstRuns($s)) === 1, 'a cut ticket schedules even for a non-milled blend');
 
+t_section('ScheduleEngine: batch size tiers + defaults + guessed colors');
+
+// Up to five configured sizes — chunking still fills at the largest.
+$cfg5 = ['color' => 'red', 'batch_size_1' => 1000.0, 'batch_size_2' => 500.0,
+         'sizes' => [1000.0, 500.0, 250.0, 100.0, 50.0], 'not_milled' => false];
+$s = $e->build(
+    [['bulk' => 'F1', 'lbs' => 1250, 'tier' => 1, 'source' => 'order', 'ticket' => null, 'due' => null, 'materials_short' => false, 'packs' => []]],
+    ['F1' => $cfg5], [$mill(1, ['hours_per_day' => 24.0])], [], $week, $days
+);
+$runs = $firstRuns($s);
+t_check(count($runs) === 2 && abs($runs[0]['lbs'] - 1000.0) < 1e-6 && abs($runs[1]['lbs'] - 250.0) < 1e-6,
+    'five-tier config chunks 1250 → 1000 + 250');
+
+// Unconfigured suggested work SCHEDULES when default sizes exist,
+// with the alias-guessed color.
+$s = $e->build(
+    [['bulk' => 'U1', 'lbs' => 750, 'tier' => 2, 'source' => 'min', 'ticket' => null, 'due' => null, 'materials_short' => false, 'packs' => []]],
+    [], [$mill(1)], [], $week, $days,
+    [], [], [], [], [500.0, 250.0], ['U1' => 'blue']
+);
+$runs = $firstRuns($s);
+t_check(count($runs) === 2 && abs($runs[0]['lbs'] - 500.0) < 1e-6 && abs($runs[1]['lbs'] - 250.0) < 1e-6,
+    'unconfigured work schedules with default sizes (750 → 500 + 250)');
+t_check($runs !== [] && $runs[0]['color'] === 'blue', 'guessed color applied to defaulted work');
+t_check((bool) array_filter($s['warnings'], fn($w) => str_contains($w, 'default batch sizes')),
+    'defaulted work is called out in a warning');
+
+// …and still skips with a warning when there are no defaults either.
+$s = $e->build(
+    [['bulk' => 'U2', 'lbs' => 100, 'tier' => 2, 'source' => 'min', 'ticket' => null, 'due' => null, 'materials_short' => false, 'packs' => []]],
+    [], [$mill(1)], [], $week, $days
+);
+t_check($firstRuns($s) === [] && (bool) array_filter($s['warnings'], fn($w) => str_contains($w, 'U2')),
+    'no config AND no defaults still warns and skips');
+
+// An unconfigured ticket picks up the guessed color too (better washups).
+$s = $e->build(
+    [['bulk' => 'T9', 'lbs' => 300, 'tier' => 0, 'source' => 'ticket', 'ticket' => 2001, 'due' => null, 'materials_short' => false, 'packs' => []]],
+    [], [$mill(1)], [], $week, $days,
+    [], [], [], [], [], ['T9' => 'yellow']
+);
+$runs = $firstRuns($s);
+t_check($runs !== [] && $runs[0]['color'] === 'yellow', 'unconfigured ticket uses the guessed color');
+
+// An unquantified ticket with no config falls back to the largest default.
+$s = $e->build(
+    [['bulk' => 'T8', 'lbs' => 0, 'tier' => 0, 'source' => 'ticket', 'ticket' => 2002, 'due' => null, 'materials_short' => false, 'packs' => []]],
+    [], [$mill(1)], [], $week, $days,
+    [], [], [], [], [400.0, 200.0], []
+);
+$runs = $firstRuns($s);
+t_check(count($runs) === 1 && abs($runs[0]['lbs'] - 400.0) < 1e-6,
+    'unquantified unconfigured ticket assumes one default batch');
+
 t_section('ScheduleEngine v2: mill mechanics unchanged');
 
 // Dry grind only lands on capable mills, at the dry rate.

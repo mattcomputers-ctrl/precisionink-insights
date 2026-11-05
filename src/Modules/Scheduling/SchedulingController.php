@@ -84,13 +84,40 @@ class SchedulingController
                 $cmsWarnings[] = 'The snapshot has no open tickets and nothing on the production plan — run a sync if this looks wrong.';
             }
 
+            // Items with no config: guess a ladder color from alias prefixes
+            // (CMS best-effort) and fall back to the global default sizes.
+            $defaultSizes = $svc->defaultBatchSizes();
+            $guessedColors = [];
+            $unconfigured = array_values(array_unique(array_filter(
+                array_column($workload, 'bulk'),
+                fn($b) => !isset($itemConfigs[$b])
+            )));
+            if ($unconfigured !== [] && CMSDatabase::isConfigured()) {
+                try {
+                    $guessedColors = $svc->guessColorsFromAliases($unconfigured);
+                } catch (\Throwable $e) {
+                    // CMS down — colors stay unknown; already warned above.
+                }
+            }
+
             $engine   = new ScheduleEngine($svc->colorOrder());
             $schedule = $engine->build(
                 $workload, $itemConfigs,
                 $mills, $popularity, $weekStart, $enabledDays,
                 $derived['passes'], $derived['dry'], $bulkDescs,
-                $derived['milled']
+                $derived['milled'], $defaultSizes, $guessedColors
             );
+
+            // Standard batch sizes per bulk — the size picker when the user
+            // edits a run's lbs on the schedule (Matt, 2026-11-04).
+            $sizeOptions = [];
+            foreach ($itemConfigs as $bulk => $cfg) {
+                if (!empty($cfg['sizes'])) {
+                    $sizeOptions[$bulk] = $cfg['sizes'];
+                }
+            }
+            $schedule['size_options']  = $sizeOptions;
+            $schedule['default_sizes'] = $defaultSizes;
             if (!empty($cmsWarnings)) {
                 $schedule['warnings'] = array_merge($cmsWarnings, $schedule['warnings'] ?? []);
             }
@@ -205,6 +232,7 @@ class SchedulingController
             'colorOrder'     => $svc->colorOrder(),
             'colors'         => SchedulingDataService::COLORS,
             'configs'        => $configs,
+            'defaultSizes'   => $svc->defaultBatchSizes(),
             'needsConfig'    => $needsConfig,
             'worklistError'  => $worklistError,
             'dryTriggers'    => $svc->dryGrindTriggers(),
@@ -363,20 +391,30 @@ class SchedulingController
         CSRF::validateRequest();
         $code      = trim((string) ($_POST['bulk_item_code'] ?? ''));
         $color     = trim((string) ($_POST['color'] ?? ''));
-        $b1        = (float) ($_POST['batch_size_1'] ?? 0);
-        $b2raw     = trim((string) ($_POST['batch_size_2'] ?? ''));
-        $b2        = $b2raw === '' ? null : (float) $b2raw;
         $notMilled = isset($_POST['not_milled']) ? 1 : 0;
+
+        // Up to 5 batch sizes; blanks drop out, kept largest-first so
+        // batch_size_1 is always the primary (largest) size.
+        $sizes = [];
+        for ($i = 1; $i <= 5; $i++) {
+            $raw = trim((string) ($_POST['batch_size_' . $i] ?? ''));
+            if ($raw !== '' && (float) $raw > 0) {
+                $sizes[] = (float) $raw;
+            }
+        }
+        rsort($sizes);
+        $sizes = array_slice($sizes, 0, 5);
+        $b1 = $sizes[0] ?? 0.0;
 
         // Not-milled items never schedule, so color/batch are irrelevant —
         // default them so checking the box alone is a complete config.
         if ($notMilled) {
             if (!in_array($color, SchedulingDataService::COLORS, true)) $color = 'extender';
-            if ($b1 <= 0) $b1 = 1;
+            if ($b1 <= 0) { $b1 = 1; $sizes = [1.0]; }
         }
 
         if ($code === '' || $b1 <= 0 || !in_array($color, SchedulingDataService::COLORS, true)) {
-            $_SESSION['_flash']['error'] = 'Item code, a valid color, and a positive primary batch size are required.';
+            $_SESSION['_flash']['error'] = 'Item code, a valid color, and at least one positive batch size are required.';
             redirect('/scheduling/settings');
         }
 
@@ -384,7 +422,11 @@ class SchedulingController
         $exists = $db->fetch("SELECT 1 FROM sched_item_config WHERE bulk_item_code = ?", [$code]);
         $data = [
             'color' => $color,
-            'batch_size_1' => $b1, 'batch_size_2' => $b2,
+            'batch_size_1' => $b1,
+            'batch_size_2' => $sizes[1] ?? null,
+            'batch_size_3' => $sizes[2] ?? null,
+            'batch_size_4' => $sizes[3] ?? null,
+            'batch_size_5' => $sizes[4] ?? null,
             'not_milled' => $notMilled,
         ];
         if ($exists) {
@@ -395,6 +437,53 @@ class SchedulingController
 
         $_SESSION['_flash']['success'] = "Scheduling config saved for {$code}.";
         redirect('/scheduling/settings');
+    }
+
+    /** POST /scheduling/settings/default-sizes — global fallback batch sizes. */
+    public function saveDefaultSizes(): void
+    {
+        require_permission('scheduling.manage');
+        CSRF::validateRequest();
+        $sizes = [];
+        for ($i = 1; $i <= 5; $i++) {
+            $raw = trim((string) ($_POST['default_size_' . $i] ?? ''));
+            if ($raw !== '' && (float) $raw > 0) {
+                $sizes[] = (float) $raw;
+            }
+        }
+        (new SchedulingDataService())->saveDefaultBatchSizes($sizes);
+        $_SESSION['_flash']['success'] = $sizes === []
+            ? 'Default batch sizes cleared — unconfigured items will not be scheduled for suggested work.'
+            : 'Default batch sizes saved.';
+        redirect('/scheduling/settings');
+    }
+
+    /**
+     * GET /scheduling/settings/item-defaults?code=E1000 — the starting point
+     * for a new item config: batch sizes the item has actually been made at
+     * and a color guessed from its alias prefixes (Matt, 2026-11-04).
+     */
+    public function itemDefaults(): void
+    {
+        require_permission('scheduling.manage');
+        $code = trim((string) ($_GET['code'] ?? ''));
+        if ($code === '') {
+            json_response(['error' => 'code required'], 400);
+        }
+        try {
+            $svc = new SchedulingDataService();
+            $sizes = $svc->historicalBatchSizes($code);
+            rsort($sizes);
+            $guess = $svc->guessColorsFromAliases([$code]);
+            json_response([
+                'sizes' => $sizes,
+                'color' => $guess[$code] ?? null,
+                'from_history' => $sizes !== [],
+                'default_sizes' => $svc->defaultBatchSizes(),
+            ]);
+        } catch (\Throwable $e) {
+            json_response(['error' => 'CMS lookup failed: ' . $e->getMessage()], 500);
+        }
     }
 
     public function deleteItemConfig(): void

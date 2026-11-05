@@ -353,6 +353,33 @@ Format: date, decision, why. Spec references are to `docs/SPEC-order-readiness.m
     summarized (one line per category, first 8 + count). Engine unit
     tests added (14 checks).
 
+51. **Batch size tiers, defaults, and alias-prefix colors (Matt, 2026-11-04):**
+    - Up to **five standard batch sizes** per item (`sched_item_config
+      batch_size_1..5`, migration 020; largest is always stored as
+      `batch_size_1`, so existing chunk-at-largest logic is unchanged).
+    - Configuring an item **prefills from its real batch history**: the
+      five most common planned PK quantities on its past MFBA tickets
+      (rounded to whole lbs), via `/scheduling/settings/item-defaults`.
+      A starting point only — every field stays editable.
+    - **Global default batch sizes** (`settings sched.default_batch_sizes`,
+      CSV): items with NO config no longer skip suggested work — they
+      schedule with the defaults and an aggregated "configure me" warning.
+      Clearing the defaults restores the old require-config behavior.
+    - **Color guessed from alias prefixes** when an item is unconfigured:
+      majority vote over the leading letter of the bulk's and its packs'
+      alias codes (letter followed by a digit votes; UV…/E… codes don't).
+      Map: B=blue, R=red, P=violet, G=green, Y=yellow, O=orange,
+      W=opaque white, K/X=black, N=brown (Matt gave B/R/P; the rest
+      verified against live aliases, e.g. 2UK0189 black, 2UY yellow).
+      Guessed colors apply to unconfigured tickets too (better washup
+      ordering than ladder-end), and are marked "?" in warnings.
+    - **Double-click a scheduled run to change its batch size** (the
+      item's standard sizes are offered; any positive lbs accepted).
+      The run is tagged `manual_override` + an "edited" pill, its pack
+      breakdown re-scales pro-rata, its carryover cards are dropped
+      (hours no longer meaningful), and the export reflects the edit
+      since export posts the edited JSON.
+
 ## Formerly-open items, now decided
 
 - **Margin Watchdog stays on live CMS queries** (date-range reports over years of

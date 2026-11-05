@@ -354,17 +354,129 @@ class SchedulingDataService
         );
     }
 
-    /** @return array<string, array{color:string,batch_size_1:float,batch_size_2:?float,not_milled:bool}> keyed by bulk code */
+    /** @return array<string, array{color:string,batch_size_1:float,batch_size_2:?float,sizes:list<float>,not_milled:bool}> keyed by bulk code */
     public function itemConfigs(): array
     {
         $out = [];
         foreach ($this->db->fetchAll("SELECT * FROM sched_item_config") as $r) {
+            $sizes = [];
+            for ($i = 1; $i <= 5; $i++) {
+                $v = $r['batch_size_' . $i] ?? null;
+                if ($v !== null && (float) $v > 0) {
+                    $sizes[] = (float) $v;
+                }
+            }
             $out[(string) $r['bulk_item_code']] = [
                 'color'        => (string) $r['color'],
                 'batch_size_1' => (float)  $r['batch_size_1'],
                 'batch_size_2' => $r['batch_size_2'] !== null ? (float) $r['batch_size_2'] : null,
+                'sizes'        => $sizes,
                 'not_milled'   => !empty($r['not_milled']),
             ];
+        }
+        return $out;
+    }
+
+    /** Global default batch sizes (lbs, up to 5) for items with no config. */
+    public function defaultBatchSizes(): array
+    {
+        $raw = (string) ($this->db->fetch(
+            "SELECT `value` FROM settings WHERE `key` = 'sched.default_batch_sizes'"
+        )['value'] ?? '');
+        $sizes = [];
+        foreach (explode(',', $raw) as $p) {
+            $v = (float) trim($p);
+            if ($v > 0) {
+                $sizes[] = $v;
+            }
+        }
+        return array_slice($sizes, 0, 5);
+    }
+
+    public function saveDefaultBatchSizes(array $sizes): void
+    {
+        $sizes = array_values(array_filter(array_map('floatval', $sizes), fn($v) => $v > 0));
+        rsort($sizes);
+        \PII\Services\Settings::set('sched.default_batch_sizes', implode(',', array_slice($sizes, 0, 5)));
+    }
+
+    /**
+     * Batch sizes this item has ACTUALLY been made at (Matt, 2026-11-04):
+     * the most common planned quantities on its past bulk tickets, most
+     * frequent first — the starting point when configuring an item.
+     *
+     * @return list<float> up to 5 sizes
+     */
+    public function historicalBatchSizes(string $bulkCode): array
+    {
+        $rows = $this->cms()->fetchAll("
+            SELECT TOP 5 ROUND(od.QtyReqd, 0) AS lbs, COUNT(*) AS n
+            FROM CMS.dbo.Ordr o
+            JOIN CMS.dbo.OrdDetail od ON od.Ordr = o.Ordr AND od.Context = 'PK'
+            JOIN CMS.dbo.Item i ON i.Item = od.Item
+            WHERE o.Context = 'MFBA' AND i.ItemCode = ? AND od.QtyReqd > 0
+            GROUP BY ROUND(od.QtyReqd, 0)
+            ORDER BY COUNT(*) DESC, ROUND(od.QtyReqd, 0) DESC", [$bulkCode]);
+        return array_values(array_filter(array_map(fn($r) => (float) $r['lbs'], $rows), fn($v) => $v > 0));
+    }
+
+    /**
+     * Alias-prefix color map (Matt, 2026-11-04): customer alias codes lead
+     * with a color letter — B2300A is a blue, R…, P… purple/violet, etc.
+     */
+    public const ALIAS_COLOR_PREFIXES = [
+        'B' => 'blue',
+        'R' => 'red',
+        'P' => 'violet',
+        'G' => 'green',
+        'Y' => 'yellow',
+        'O' => 'orange',
+        'W' => 'opaque white',
+        'K' => 'black',
+        'X' => 'black',
+        'N' => 'brown',
+    ];
+
+    /**
+     * Guess ladder colors from the alias prefixes of each bulk's packs:
+     * majority vote across the leading letter of every alias (a letter
+     * followed by a digit — UV…, E… and other non-color codes don't vote).
+     *
+     * @param list<string> $bulkCodes
+     * @return array<string,string> bulk → guessed ladder color
+     */
+    public function guessColorsFromAliases(array $bulkCodes): array
+    {
+        if ($bulkCodes === []) {
+            return [];
+        }
+        $votes = [];
+        foreach (array_chunk($bulkCodes, 200) as $chunk) {
+            $ph = implode(',', array_fill(0, count($chunk), '?'));
+            // Aliases of the bulk itself and of every pack whose code
+            // starts with "<bulk>-".
+            $rows = $this->cms()->fetchAll("
+                SELECT b.ItemCode AS bulk_code, al.ItemCode AS alias_code
+                FROM CMS.dbo.Item b
+                JOIN CMS.dbo.Item inv ON inv.ReplacedBy IS NULL
+                     AND (inv.Item = b.Item OR inv.ItemCode LIKE b.ItemCode + '-%')
+                JOIN CMS.dbo.Item al ON al.ReplacedBy = inv.Item
+                WHERE b.ItemCode IN ({$ph})", $chunk);
+            foreach ($rows as $r) {
+                $alias = strtoupper((string) $r['alias_code']);
+                if (!preg_match('/^([A-Z])[0-9]/', $alias, $m)) {
+                    continue;   // UVXL010 etc. — not a color-letter alias
+                }
+                $color = self::ALIAS_COLOR_PREFIXES[$m[1]] ?? null;
+                if ($color !== null) {
+                    $votes[(string) $r['bulk_code']][$color] = ($votes[(string) $r['bulk_code']][$color] ?? 0) + 1;
+                }
+            }
+        }
+        $out = [];
+        foreach ($votes as $bulk => $v) {
+            arsort($v);
+            $out[$bulk] = (string) array_key_first($v);
         }
         return $out;
     }

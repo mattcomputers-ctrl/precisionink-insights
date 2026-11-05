@@ -248,15 +248,43 @@
     <?php endif; ?>
 </div>
 
+<!-- ── Default batch sizes ───────────────────────────────────── -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Default batch sizes</h2>
+            <div class="card-subtitle">
+                Fallback batch sizes (up to 5) used when an item has no configuration of its own —
+                such items schedule with these sizes and a color guessed from their alias prefix.
+                Leave all blank to require per-item configuration instead.
+            </div>
+        </div>
+    </div>
+
+    <form method="POST" action="/scheduling/settings/default-sizes" class="form-row" style="align-items:flex-end;">
+        <?= csrf_field() ?>
+        <?php for ($i = 1; $i <= 5; $i++): ?>
+            <div class="form-group" style="flex:0 0 110px;">
+                <label>Size <?= $i ?> (lbs)</label>
+                <input type="number" name="default_size_<?= $i ?>" min="1" step="1"
+                       value="<?= isset($defaultSizes[$i - 1]) ? e((string) round($defaultSizes[$i - 1])) : '' ?>" placeholder="—">
+            </div>
+        <?php endfor; ?>
+        <div class="form-group" style="flex:0 0 auto;">
+            <button type="submit" class="btn btn-primary">Save defaults</button>
+        </div>
+    </form>
+</div>
+
 <!-- ── Item scheduling config ────────────────────────────────── -->
 <div class="card" id="item-config-card">
     <div class="card-header">
         <div>
             <h2 class="card-title">Item configuration</h2>
             <div class="card-subtitle">
-                Per <strong>bulk</strong> item: color and standard batch sizes. Packs inherit from their bulk item.
+                Per <strong>bulk</strong> item: color and up to 5 standard batch sizes (largest is the primary). Packs inherit from their bulk item.
+                Picking an item prefills the sizes it has actually been made at and a color guessed from its alias prefix — a starting point, edit freely.
                 Passes are derived automatically from the dry-grind triggers above.
-                Items with need but no config are flagged when generating, not scheduled.
             </div>
         </div>
     </div>
@@ -270,19 +298,20 @@
         </div>
         <div class="form-group" style="flex:0 0 170px;">
             <label>Color</label>
-            <select name="color" required>
+            <select name="color" id="add-color" required>
                 <?php foreach ($colors as $c): ?>
                     <option value="<?= e($c) ?>"><?= e(ucwords($c)) ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
-        <div class="form-group" style="flex:0 0 140px;">
-            <label>Batch size 1 (lbs)</label>
-            <input type="number" name="batch_size_1" min="1" step="1" required>
-        </div>
-        <div class="form-group" style="flex:0 0 140px;">
-            <label>Batch size 2 (lbs)</label>
-            <input type="number" name="batch_size_2" min="1" step="1" placeholder="optional">
+        <div class="form-group" style="flex:0 0 auto;">
+            <label>Batch sizes (lbs, up to 5)</label>
+            <div style="display:flex;gap:0.35rem;">
+                <input type="number" name="batch_size_1" min="1" step="1" style="width:80px;" required>
+                <?php for ($i = 2; $i <= 5; $i++): ?>
+                    <input type="number" name="batch_size_<?= $i ?>" min="1" step="1" style="width:80px;" placeholder="—">
+                <?php endfor; ?>
+            </div>
         </div>
         <div class="form-group" style="flex:0 0 auto;">
             <label title="Item is never milled — exclude it from all schedules">Not milled</label>
@@ -294,6 +323,7 @@
             <button type="submit" class="btn btn-primary">Save item</button>
         </div>
     </form>
+    <p id="item-prefill-hint" class="text-muted" style="font-size:0.8rem;display:none;margin-top:-0.4rem;"></p>
 
     <?php if (empty($configs)): ?>
         <p class="muted-empty">No items configured yet. Items must be configured here before they can be scheduled.</p>
@@ -301,7 +331,7 @@
     <table class="table">
         <thead>
             <tr><th>Bulk item</th><th>Color</th>
-                <th class="text-right">Batch 1 (lbs)</th><th class="text-right">Batch 2 (lbs)</th>
+                <th>Batch sizes (lbs — largest first, up to 5)</th>
                 <th title="Never milled — excluded from all schedules">Not milled</th>
                 <th title="Derived from the item's direct formula vs the trigger lists: DG = dry grind, Mill = standard milling, Blend = matches neither (only schedules when a batch exceeds 50 lbs)">Milling (derived)</th>
                 <th class="text-muted">Updated</th><th></th></tr>
@@ -320,11 +350,17 @@
                         <?php endforeach; ?>
                     </select>
                 </td>
-                <td class="text-right"><input type="number" name="batch_size_1" min="1" step="1"
-                        value="<?= e((string) round((float) $c['batch_size_1'])) ?>" style="width:90px;" required></td>
-                <td class="text-right"><input type="number" name="batch_size_2" min="1" step="1"
-                        value="<?= $c['batch_size_2'] !== null ? e((string) round((float) $c['batch_size_2'])) : '' ?>"
-                        placeholder="—" style="width:90px;"></td>
+                <td>
+                    <div style="display:flex;gap:0.3rem;">
+                        <input type="number" name="batch_size_1" min="1" step="1"
+                               value="<?= e((string) round((float) $c['batch_size_1'])) ?>" style="width:68px;" required>
+                        <?php for ($i = 2; $i <= 5; $i++): $v = $c['batch_size_' . $i] ?? null; ?>
+                            <input type="number" name="batch_size_<?= $i ?>" min="1" step="1"
+                                   value="<?= $v !== null ? e((string) round((float) $v)) : '' ?>"
+                                   placeholder="—" style="width:68px;">
+                        <?php endfor; ?>
+                    </div>
+                </td>
                 <td><input type="checkbox" name="not_milled" value="1" <?= !empty($c['not_milled']) ? 'checked' : '' ?>></td>
                 <td>
                     <?php if ($derivedDry === null): ?>
@@ -402,6 +438,7 @@
                     hit.addEventListener('click', () => {
                         input.value = hit.dataset.code;
                         results.style.display = 'none';
+                        prefillFromHistory(hit.dataset.code);
                     });
                 });
             } catch (e) { results.style.display = 'none'; }
@@ -420,12 +457,48 @@
         });
     }
 
+    /* Prefill batch sizes from past batches + color from alias prefix.
+       A starting point only — every field stays editable. */
+    const addForm = document.querySelector('#item-config-card form[action="/scheduling/settings/items"]');
+    const hint = document.getElementById('item-prefill-hint');
+    async function prefillFromHistory(code) {
+        hint.style.display = 'none';
+        try {
+            const resp = await fetch('/scheduling/settings/item-defaults?code=' + encodeURIComponent(code));
+            const d = await resp.json();
+            if (!resp.ok || d.error) return;
+            const sizes = (d.sizes && d.sizes.length) ? d.sizes : (d.default_sizes || []);
+            const notes = [];
+            for (let i = 1; i <= 5; i++) {
+                const el = addForm.querySelector('input[name="batch_size_' + i + '"]');
+                if (el) el.value = sizes[i - 1] != null ? Math.round(sizes[i - 1]) : '';
+            }
+            if (sizes.length) {
+                notes.push(d.from_history
+                    ? 'Batch sizes prefilled from this item’s past batches'
+                    : 'No batch history — prefilled with the default batch sizes');
+            }
+            if (d.color) {
+                const sel = document.getElementById('add-color');
+                if (sel && [...sel.options].some(o => o.value === d.color)) {
+                    sel.value = d.color;
+                    notes.push('color guessed from alias prefix: ' + d.color);
+                }
+            }
+            if (notes.length) {
+                hint.textContent = '✨ ' + notes.join(' · ') + ' — adjust as needed.';
+                hint.style.display = '';
+            }
+        } catch (e) { /* CMS down — leave the form blank */ }
+    }
+
     /* Worklist "Configure" buttons prefill the item form */
     document.querySelectorAll('.needs-config-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             input.value = btn.dataset.code;
             document.getElementById('item-config-card').scrollIntoView({ behavior: 'smooth' });
             input.focus();
+            prefillFromHistory(btn.dataset.code);
         });
     });
 })();

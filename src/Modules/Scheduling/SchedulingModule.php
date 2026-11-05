@@ -48,8 +48,10 @@ class SchedulingModule extends Module
             $r->post('/settings/mill-triggers',     $c . '@addMillTriggerAction');
             $r->post('/settings/mill-triggers/{id}/delete', $c . '@deleteMillTriggerAction');
             $r->get('/settings/item-search',        $c . '@itemSearch');    // CMS bulk item lookup
+            $r->get('/settings/item-defaults',      $c . '@itemDefaults');  // historical sizes + guessed color
             $r->post('/settings/items',             $c . '@saveItemConfig');
             $r->post('/settings/items/delete',      $c . '@deleteItemConfig');
+            $r->post('/settings/default-sizes',     $c . '@saveDefaultSizes');
         });
     }
 }

@@ -149,7 +149,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         (schedule.mills || []).forEach((mill, mi) => {
             h += '<div class="card">';
             h += '<div class="card-header"><h2 class="card-title">' + esc(mill.mill_name) + '</h2>';
-            h += '<span class="text-muted" style="font-size:0.8rem;">drag runs to rearrange — same-day order and across days/mills</span></div>';
+            h += '<span class="text-muted" style="font-size:0.8rem;">drag runs to rearrange · double-click a run to change its batch size</span></div>';
             h += '<div style="display:grid;grid-template-columns:repeat(' + countEnabled() + ', 1fr);gap:0.75rem;overflow-x:auto;">';
 
             (mill.days || []).forEach((day, di) => {
@@ -216,7 +216,12 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
         let packs = (run.pack_breakdown || []).map(p => esc(p.pack) + ': ' + Number(p.lbs).toLocaleString() + ' lbs').join(' · ');
         let batchLabel = run.batch_count > 1 ? ' <span class="text-dim">(' + run.batch_no + '/' + run.batch_count + ')</span>' : '';
 
+        if (run.manual_override && !run.carryover) {
+            badge += '<span class="pill" style="background:rgba(241,196,15,0.2);color:var(--warn);margin-left:0.3rem;" title="Batch size changed by hand — hours shown no longer reflect this run">edited</span>';
+        }
+
         return '<div class="sched-run" draggable="true" data-mill="' + mi + '" data-day="' + di + '" data-run="' + ri + '" ' +
+            'title="Double-click to change the batch size" ' +
             'style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:0.5rem 0.6rem;margin-bottom:0.45rem;cursor:grab;">' +
             '<div style="font-weight:600;font-size:0.85rem;">' + colorDot + esc(run.bulk) + batchLabel + badge + '</div>' +
             (run.description ? '<div class="text-muted" style="font-size:0.72rem;">' + esc(run.description) + '</div>' : '') +
@@ -248,6 +253,7 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
                 el.style.opacity = '0.4';
             });
             el.addEventListener('dragend', () => { el.style.opacity = ''; });
+            el.addEventListener('dblclick', () => editRunSize(+el.dataset.mill, +el.dataset.day, +el.dataset.run));
         });
 
         grid.querySelectorAll('.sched-day-col').forEach(col => {
@@ -280,6 +286,40 @@ $nextMonday = date('Y-m-d', strtotime('next monday'));
                 render();   // re-render (drops recompute nothing server-side; export reflects edits)
             });
         });
+    }
+
+    /* Double-click a run → change its batch size. The item's standard
+       sizes (or the global defaults) are offered as the starting point;
+       any positive number is accepted. Pack breakdown re-scales pro-rata. */
+    function editRunSize(mi, di, ri) {
+        const run = schedule.mills[mi].days[di].runs[ri];
+        if (!run || run.carryover) return;   // edit the first-day card, not continuations
+
+        const opts = (schedule.size_options || {})[run.bulk] || schedule.default_sizes || [];
+        let msg = 'Batch size for ' + run.bulk + ' (lbs):';
+        if (opts.length) msg += '\nStandard sizes: ' + opts.map(s => Number(s).toLocaleString()).join(', ');
+        const raw = window.prompt(msg, run.lbs);
+        if (raw === null) return;
+        const lbs = parseFloat(String(raw).replace(/[,\s]/g, ''));
+        if (!isFinite(lbs) || lbs <= 0) { alert('Enter a positive number of pounds.'); return; }
+        if (Math.abs(lbs - run.lbs) < 1e-9) return;
+
+        const scale = run.lbs > 0 ? lbs / run.lbs : 0;
+        (run.pack_breakdown || []).forEach(p => { p.lbs = Math.round(p.lbs * scale * 10) / 10; });
+        run.lbs = lbs;
+        run.manual_override = true;
+
+        // Drop this run's continuation cards — the hours no longer apply.
+        schedule.mills.forEach(m => m.days.forEach(d => {
+            d.runs = d.runs.filter(r => !(r.run_id === run.run_id && r.carryover));
+        }));
+
+        const maxLbs = schedule.mills[mi].max_batch_lbs;
+        if (maxLbs > 0 && lbs > maxLbs) {
+            alert('Heads up: ' + Number(lbs).toLocaleString() + ' lbs exceeds this mill’s max batch of '
+                + Number(maxLbs).toLocaleString() + ' lbs. Kept anyway — your call.');
+        }
+        render();
     }
 
     function exportExcel() {

@@ -68,6 +68,10 @@ class ScheduleEngine
      * @param array<string,bool> $dryByBulk     derived dry-grind flag
      * @param array<string,string> $bulkDescriptions  bulk → Item.Description
      * @param array<string,bool> $milledByBulk  derived "needs milling"; absent = milled (fail-open)
+     * @param list<float> $defaultSizes   global default batch sizes (largest
+     *        first) used when an item has no config (Matt, 2026-11-04)
+     * @param array<string,string> $guessedColors  bulk → color guessed from
+     *        alias prefixes, used only when the item has no config
      */
     public function build(
         array $demands,
@@ -79,14 +83,33 @@ class ScheduleEngine
         array $passesByBulk = [],
         array $dryByBulk = [],
         array $bulkDescriptions = [],
-        array $milledByBulk = []
+        array $milledByBulk = [],
+        array $defaultSizes = [],
+        array $guessedColors = []
     ): array {
         $warnings = [];
         $unconfiguredTickets = [];
         $noQtyAssumed = [];
         $noQtySkipped = [];
         $unconfiguredWork = [];
+        $defaultedWork = [];
         $ladderEnd = count($this->colorOrder);   // unknown colors sort last
+
+        $defaultSizes = array_values(array_filter(array_map('floatval', $defaultSizes), fn($v) => $v > 0));
+        rsort($defaultSizes);
+
+        // Configured sizes (up to 5), largest first; [] when unconfigured.
+        $sizesFor = function (?array $cfg) use ($defaultSizes): array {
+            if ($cfg === null) {
+                return $defaultSizes;
+            }
+            $sizes = $cfg['sizes'] ?? array_values(array_filter(
+                [(float) $cfg['batch_size_1'], (float) ($cfg['batch_size_2'] ?? 0)],
+                fn($v) => $v > 0
+            ));
+            rsort($sizes);
+            return $sizes !== [] ? $sizes : $defaultSizes;
+        };
 
         // ── explode demand units into batches ──────────────────────────
         $batches = [];
@@ -98,9 +121,10 @@ class ScheduleEngine
             if ($tier === 0) {
                 // Committed ticket: it exists, so it schedules — config
                 // only adds color/size knowledge.
+                $sizes = $sizesFor($cfg);
                 $lbs = (float) ($d['lbs'] ?? 0);
-                if ($lbs <= 0 && $cfg !== null && $cfg['batch_size_1'] > 0) {
-                    $lbs = (float) $cfg['batch_size_1'];
+                if ($lbs <= 0 && $sizes !== []) {
+                    $lbs = $sizes[0];
                     $noQtyAssumed[] = "{$d['ticket']} ({$bulk})";
                 } elseif ($lbs <= 0) {
                     $noQtySkipped[] = "{$d['ticket']} ({$bulk})";
@@ -109,7 +133,7 @@ class ScheduleEngine
                 if ($cfg === null) {
                     $unconfiguredTickets[] = "{$d['ticket']} ({$bulk})";
                 }
-                $color = $cfg['color'] ?? null;
+                $color = $cfg['color'] ?? ($guessedColors[$bulk] ?? null);
                 $batches[] = $this->batchRow($d, $bulk, 1, 1, $lbs, $color,
                     $color !== null ? ($this->colorIndex[$color] ?? $ladderEnd) : $ladderEnd,
                     $passesByBulk, $dryByBulk, $bulkDescriptions, $popularity);
@@ -120,26 +144,34 @@ class ScheduleEngine
             if ((float) $d['lbs'] < 0.5) {
                 continue;   // sub-pound rounding noise, not a batch
             }
-            if ($cfg === null) {
+            $sizes = $sizesFor($cfg);
+            if ($cfg === null && $sizes === []) {
                 $unconfiguredWork[] = "{$bulk} (" . round((float) $d['lbs']) . " lbs, {$d['source']})";
                 continue;
             }
-            if (!empty($cfg['not_milled'])) {
+            if ($cfg !== null && !empty($cfg['not_milled'])) {
                 continue;   // flagged Not Milled / Not Scheduled — silently excluded
             }
-            if (!isset($this->colorIndex[$cfg['color']])) {
+            $color = $cfg['color'] ?? ($guessedColors[$bulk] ?? null);
+            if ($cfg !== null && !isset($this->colorIndex[$cfg['color']])) {
                 $warnings[] = "Bulk item {$bulk} has unknown color '{$cfg['color']}' — not scheduled.";
+                continue;
+            }
+            if ($cfg === null) {
+                // No config but global default sizes exist — schedule with
+                // the defaults and the alias-guessed color (Matt, 2026-11-04).
+                $defaultedWork[] = "{$bulk}" . ($color !== null ? " ({$color}?)" : '');
+            }
+            $colorIdx = $color !== null ? ($this->colorIndex[$color] ?? $ladderEnd) : $ladderEnd;
+
+            if ($sizes === []) {
+                $unconfiguredWork[] = "{$bulk} (" . round((float) $d['lbs']) . " lbs, {$d['source']})";
                 continue;
             }
 
             // Chunk at the largest standard size; the last chunk is exact.
             // (Below-minimum quantities arrive pre-rounded by the production
             // plan; order shortfalls are make-to-order and must stay exact.)
-            $sizes = [$cfg['batch_size_1']];
-            if (!empty($cfg['batch_size_2'])) {
-                $sizes[] = (float) $cfg['batch_size_2'];
-            }
-            rsort($sizes);
             $batchLbsList = [];
             $remaining = (float) $d['lbs'];
             while ($remaining > 1e-9) {
@@ -157,7 +189,7 @@ class ScheduleEngine
 
             foreach ($batchLbsList as $i => $lbs) {
                 $batches[] = $this->batchRow($d, $bulk, $i + 1, count($batchLbsList), $lbs,
-                    $cfg['color'], $this->colorIndex[$cfg['color']],
+                    $color, $colorIdx,
                     $passesByBulk, $dryByBulk, $bulkDescriptions, $popularity);
             }
         }
@@ -171,14 +203,15 @@ class ScheduleEngine
             $warnings[] = count($list) . ' ' . $text . ': ' . implode(', ', $shown)
                 . ($more > 0 ? " and {$more} more" : '') . '.';
         };
-        $summarize($unconfiguredWork, 'item(s) need production but have no scheduling config (color/batch size) — NOT scheduled; configure them in Scheduling → Settings');
+        $summarize($unconfiguredWork, 'item(s) need production but have no scheduling config (color/batch size) and no default batch sizes are set — NOT scheduled; configure them in Scheduling → Settings');
+        $summarize($defaultedWork, 'item(s) have no scheduling config — scheduled with the default batch sizes and a color guessed from alias prefixes (? = guessed; blank = unknown, worst-case washups). Configure them in Scheduling → Settings');
         $summarize($noQtyAssumed, 'open ticket(s) have no quantity in CMS — assumed one standard batch each');
         $summarize($noQtySkipped, 'open ticket(s) have no quantity in CMS and no batch size configured — NOT scheduled');
         if ($unconfiguredTickets !== []) {
             $shown = array_slice($unconfiguredTickets, 0, 8);
             $more = count($unconfiguredTickets) - count($shown);
             $warnings[] = count($unconfiguredTickets) . ' open ticket(s) have no scheduling config — scheduled with '
-                . 'unknown color (worst-case washups): ' . implode(', ', $shown)
+                . 'a color guessed from alias prefixes where possible (otherwise worst-case washups): ' . implode(', ', $shown)
                 . ($more > 0 ? " and {$more} more" : '') . '. Configure them in Scheduling → Settings.';
         }
 
