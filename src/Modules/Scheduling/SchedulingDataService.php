@@ -403,9 +403,10 @@ class SchedulingDataService
     /**
      * Batch sizes this item has ACTUALLY been made at (Matt, 2026-11-04):
      * the most common planned quantities on its past bulk tickets, most
-     * frequent first — the starting point when configuring an item.
+     * frequent first — the starting point when configuring an item, and
+     * the recommendation for already-configured ones (Matt, 2026-11-05).
      *
-     * @return list<float> up to 5 sizes
+     * @return list<array{lbs: float, n: int}> up to 5, most frequent first
      */
     public function historicalBatchSizes(string $bulkCode): array
     {
@@ -417,7 +418,13 @@ class SchedulingDataService
             WHERE o.Context = 'MFBA' AND i.ItemCode = ? AND od.QtyReqd > 0
             GROUP BY ROUND(od.QtyReqd, 0)
             ORDER BY COUNT(*) DESC, ROUND(od.QtyReqd, 0) DESC", [$bulkCode]);
-        return array_values(array_filter(array_map(fn($r) => (float) $r['lbs'], $rows), fn($v) => $v > 0));
+        $out = [];
+        foreach ($rows as $r) {
+            if ((float) $r['lbs'] > 0) {
+                $out[] = ['lbs' => (float) $r['lbs'], 'n' => (int) $r['n']];
+            }
+        }
+        return $out;
     }
 
     /**

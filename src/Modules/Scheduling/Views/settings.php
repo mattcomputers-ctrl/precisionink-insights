@@ -351,7 +351,7 @@
                     </select>
                 </td>
                 <td>
-                    <div style="display:flex;gap:0.3rem;">
+                    <div style="display:flex;gap:0.3rem;align-items:center;">
                         <input type="number" name="batch_size_1" min="1" step="1"
                                value="<?= e((string) round((float) $c['batch_size_1'])) ?>" style="width:68px;" required>
                         <?php for ($i = 2; $i <= 5; $i++): $v = $c['batch_size_' . $i] ?? null; ?>
@@ -359,7 +359,10 @@
                                    value="<?= $v !== null ? e((string) round((float) $v)) : '' ?>"
                                    placeholder="—" style="width:68px;">
                         <?php endfor; ?>
+                        <button type="button" class="btn btn-sm row-suggest-btn" data-code="<?= e($c['bulk_item_code']) ?>"
+                                title="Fill with the sizes this item has actually been made at (from its batch history) — review, then Save">⟲</button>
                     </div>
+                    <div class="row-suggest-hint text-muted" style="font-size:0.72rem;display:none;margin-top:0.2rem;"></div>
                 </td>
                 <td><input type="checkbox" name="not_milled" value="1" <?= !empty($c['not_milled']) ? 'checked' : '' ?>></td>
                 <td>
@@ -491,6 +494,39 @@
             }
         } catch (e) { /* CMS down — leave the form blank */ }
     }
+
+    /* "⟲" on a configured row recommends sizes from the item's batch
+       history: fills the row's inputs and shows how often each size was
+       actually made. Nothing is saved until the row's Save is clicked. */
+    document.querySelectorAll('.row-suggest-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const tr = btn.closest('tr');
+            const hintEl = tr.querySelector('.row-suggest-hint');
+            btn.disabled = true;
+            try {
+                const resp = await fetch('/scheduling/settings/item-defaults?code=' + encodeURIComponent(btn.dataset.code));
+                const d = await resp.json();
+                if (!resp.ok || d.error) throw new Error(d.error || 'lookup failed');
+                if (!d.from_history) {
+                    hintEl.textContent = 'No batch history found for this item.';
+                    hintEl.style.display = '';
+                    return;
+                }
+                for (let i = 1; i <= 5; i++) {
+                    const el = tr.querySelector('input[name="batch_size_' + i + '"]');
+                    if (el) el.value = d.sizes[i - 1] != null ? Math.round(d.sizes[i - 1]) : '';
+                }
+                hintEl.textContent = 'From history: ' + d.history.map(h =>
+                    Number(h.lbs).toLocaleString() + ' lbs ×' + h.n).join(' · ') + ' — Save to keep.';
+                hintEl.style.display = '';
+            } catch (e) {
+                hintEl.textContent = 'History lookup failed: ' + e.message;
+                hintEl.style.display = '';
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    });
 
     /* Worklist "Configure" buttons prefill the item form */
     document.querySelectorAll('.needs-config-btn').forEach(btn => {

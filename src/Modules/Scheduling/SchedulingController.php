@@ -472,11 +472,13 @@ class SchedulingController
         }
         try {
             $svc = new SchedulingDataService();
-            $sizes = $svc->historicalBatchSizes($code);
+            $history = $svc->historicalBatchSizes($code);   // most frequent first
+            $sizes = array_column($history, 'lbs');
             rsort($sizes);
             $guess = $svc->guessColorsFromAliases([$code]);
             json_response([
                 'sizes' => $sizes,
+                'history' => $history,
                 'color' => $guess[$code] ?? null,
                 'from_history' => $sizes !== [],
                 'default_sizes' => $svc->defaultBatchSizes(),
