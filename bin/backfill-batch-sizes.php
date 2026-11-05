@@ -11,6 +11,14 @@ declare(strict_types=1);
  * Items with no batch history are left exactly as they are, as are
  * not-milled items (their sizes are placeholders and never schedule).
  *
+ * OUTLIER FILTER (Matt's dry run, 2026-11-05): a one-off oversize batch
+ * must not become the primary size (the engine chunks at the largest —
+ * e.g. 3AC3200 was made at 750 lbs 263 times but a single 1600 lb batch
+ * would have taken the top slot). A size therefore only counts when it
+ * was made at least TWICE and at least 5% as often as the item's most
+ * common size. Items whose entire history is one-offs are left alone.
+ * Pass --raw to skip the filter and take the top 5 as-is.
+ *
  * Usage (on the server, from the app root):
  *   php bin/backfill-batch-sizes.php --dry-run   # show what would change
  *   php bin/backfill-batch-sizes.php             # apply
@@ -25,14 +33,18 @@ use PII\Modules\Scheduling\SchedulingDataService;
 App::bootConsole();
 
 $dryRun = in_array('--dry-run', $argv, true);
+$raw    = in_array('--raw', $argv, true);
 $db  = Database::getInstance();
 $svc = new SchedulingDataService();
 
 $configs = $db->fetchAll("SELECT * FROM sched_item_config ORDER BY bulk_item_code");
-echo count($configs) . " configured item(s)" . ($dryRun ? ' — DRY RUN, nothing will be written' : '') . "\n\n";
+echo count($configs) . " configured item(s)"
+    . ($dryRun ? ' — DRY RUN, nothing will be written' : '')
+    . ($raw ? ' — RAW (outlier filter off)' : '') . "\n\n";
 
 $updated = 0;
 $noHistory = 0;
+$tooThin = 0;
 $skippedNotMilled = 0;
 
 foreach ($configs as $c) {
@@ -51,7 +63,22 @@ foreach ($configs as $c) {
         continue;
     }
 
-    $sizes = array_column($history, 'lbs');
+    $kept = $history;
+    if (!$raw) {
+        $top = max(array_column($history, 'n'));
+        $kept = array_values(array_filter(
+            $history,
+            fn($h) => $h['n'] >= 2 && $h['n'] >= 0.05 * $top
+        ));
+        if ($kept === []) {
+            $tooThin++;
+            $evidence = implode(' · ', array_map(fn($h) => round($h['lbs']) . "×{$h['n']}", $history));
+            echo "  {$code}: history too thin (all one-offs) — left as is   [{$evidence}]\n";
+            continue;
+        }
+    }
+
+    $sizes = array_column($kept, 'lbs');
     rsort($sizes);
 
     $old = [];
@@ -63,7 +90,11 @@ foreach ($configs as $c) {
     }
 
     $fmt = fn(array $a) => $a === [] ? '(none)' : implode('/', array_map(fn($v) => (string) round((float) $v), $a));
-    $evidence = implode(' · ', array_map(fn($h) => round($h['lbs']) . "×{$h['n']}", $history));
+    $evidence = implode(' · ', array_map(fn($h) => round($h['lbs']) . "×{$h['n']}", $kept));
+    $dropped = array_udiff($history, $kept, fn($a, $b) => $a['lbs'] <=> $b['lbs']);
+    if ($dropped !== []) {
+        $evidence .= ' | dropped as outliers: ' . implode(' · ', array_map(fn($h) => round($h['lbs']) . "×{$h['n']}", $dropped));
+    }
     echo "  {$code}: {$fmt($old)} -> {$fmt($sizes)}   [{$evidence}]\n";
 
     if (!$dryRun) {
@@ -79,4 +110,5 @@ foreach ($configs as $c) {
 }
 
 echo "\n" . ($dryRun ? 'Would update' : 'Updated') . " {$updated} item(s); "
-    . "{$noHistory} with no history left untouched; {$skippedNotMilled} not-milled skipped.\n";
+    . "{$noHistory} with no history and {$tooThin} with only one-off batches left untouched; "
+    . "{$skippedNotMilled} not-milled skipped.\n";
