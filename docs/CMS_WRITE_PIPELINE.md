@@ -197,12 +197,23 @@ Most-used Execute objects (business procs): `MoveInventory`,
    XML (no free-form), per-operation allowlist, dry-run against a restored
    copy first, and the `@LogID` output + `LogResult` give us immediate
    verification of what happened.
-5. **Open questions for later:** licensing/seat semantics of calling the
-   proc outside a CMS client session (Shell.Login/Logout are themselves just
-   logged requests; `LicenseSession` seats appear client-enforced — check
-   Mar-Kov's license terms before going live); whether any flows bypass
+5. **Seats (investigated 2026-11-09):** a seat is a `LicenseSession` row,
+   acquired by the `Login` Execute action (`Shell.Login` is itself just a
+   one-step ProcessXMLRequest call), heartbeat-renewed by running clients
+   (ExpiryTime floats ~56 min ahead), released by `Shell.Logout` or expiry.
+   When all seats are busy the LOGIN is refused and the client journals
+   `Login.LicenseUnavailable` — and those journal requests were processed
+   for a seatless user, proving ProcessXMLRequest itself is not gated on a
+   seat. Whether the encrypted business procs check `LicenseSession`
+   internally is unverifiable from outside. **Plan: play it straight —
+   Login → write → Logout around each write burst** (seat held for
+   seconds); handle the all-seats-busy case with retry/backoff, and raise
+   a 6th seat / integration license with Mar-Kov if contention bites.
+   Observed contention example: 2026-11-05 13:48 kackermohr refused twice,
+   got in 19 s after rod.cartwright logged out.
+6. **Open questions for later:** whether any flows bypass
    ProcessXMLRequest (none observed); exact `Version` semantics on insert
-   (`Version=""`).
+   (`Version=""`); Mar-Kov's license terms for a programmatic client.
 
 ## Open follow-ups
 
