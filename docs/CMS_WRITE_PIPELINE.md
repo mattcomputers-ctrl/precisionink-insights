@@ -197,23 +197,74 @@ Most-used Execute objects (business procs): `MoveInventory`,
    XML (no free-form), per-operation allowlist, dry-run against a restored
    copy first, and the `@LogID` output + `LogResult` give us immediate
    verification of what happened.
-5. **Seats (investigated 2026-11-09):** a seat is a `LicenseSession` row,
-   acquired by the `Login` Execute action (`Shell.Login` is itself just a
-   one-step ProcessXMLRequest call), heartbeat-renewed by running clients
-   (ExpiryTime floats ~56 min ahead), released by `Shell.Logout` or expiry.
-   When all seats are busy the LOGIN is refused and the client journals
-   `Login.LicenseUnavailable` — and those journal requests were processed
-   for a seatless user, proving ProcessXMLRequest itself is not gated on a
-   seat. Whether the encrypted business procs check `LicenseSession`
-   internally is unverifiable from outside. **Plan: play it straight —
-   Login → write → Logout around each write burst** (seat held for
-   seconds); handle the all-seats-busy case with retry/backoff, and raise
-   a 6th seat / integration license with Mar-Kov if contention bites.
-   Observed contention example: 2026-11-05 13:48 kackermohr refused twice,
-   got in 19 s after rod.cartwright logged out.
+5. **Seats are decoupled from the write path** — see the dedicated section
+   below. The API data path does not acquire or require a seat, so the
+   writer design does not need seat scheduling.
 6. **Open questions for later:** whether any flows bypass
    ProcessXMLRequest (none observed); exact `Version` semantics on insert
-   (`Version=""`); Mar-Kov's license terms for a programmatic client.
+   (`Version=""`).
+
+## Seat model — verified decoupled from the write path (2026-11-09)
+
+*Scope: this section describes the seat **mechanism** as observed in our own
+database (metadata + log history). It is a technical finding about how the
+software behaves, not a statement about license entitlement for API use,
+which is tracked separately.*
+
+### The seat machinery is four isolated objects
+
+| Object | Role |
+|---|---|
+| `LicenseSession` (table) | one row per live seat: Area, Workstation, User, LoginTime, ExpiryTime |
+| `LicenseSessions` (view) | read-over of the table |
+| `TerminateLicenseSession` (proc) | frees a seat — what `Shell.Logout` calls |
+| `Shell.Login` (action) | the **only** thing that inserts a seat; where the "pool full?" refusal fires |
+
+A seat is acquired by `Shell.Login` (itself a one-step ProcessXMLRequest
+call), released by `Shell.Logout` or by ExpiryTime lapsing (~56 min after
+the last renewal). When the pool is full the **login** is refused and the
+client journals `Login.LicenseUnavailable`.
+
+### The write engine never touches the seat table
+
+Verified against `sys.sql_expression_dependencies`:
+
+- Objects that reference `LicenseSession` at all: only `LicenseSessions`
+  (the view) and `TerminateLicenseSession` (logout). Nothing else.
+- `ProcessXMLRequest`, `MoveInventory`, `CreateChangeSet`,
+  `ExecuteBatchPhase` reference `LicenseSession` / any license object
+  **zero** times.
+- In 12 years of logs the only licensing-related actions are `Shell.Login`,
+  `Shell.Logout`, `Login.LicenseUnavailable`. There is **no heartbeat
+  action** — seat renewal happens entirely on the client/login side, never
+  as a side effect of a data request.
+- Corroborating behavior: a data write (`…SaveChanges`, `.Post`) carries no
+  Login step, and `ProcessXMLRequest` was observed executing requests for a
+  user with no seat (the LicenseUnavailable journaling itself).
+
+**Conclusion:** issuing reads/writes through `ProcessXMLRequest` without a
+`Shell.Login` never creates a `LicenseSession` row. Seats are not a
+technical constraint on the API path; the writer needs no seat scheduling,
+off-hours windows, or retry-on-LicenseUnavailable logic.
+
+### Seat-demand profile (reference, if a design ever chooses to run through `Login`)
+
+Kept for the case where the integration deliberately logs in to appear as a
+normal client. Human load on the shared 5-seat pool (last 90 days,
+server-local):
+
+- **Active:** weekdays ~7am–5pm, ramp at 8am, **peak 11am–3pm (busiest 2pm)**.
+- **Free:** before 7am, after 6pm, and all weekend (Sat/Sun ~13–28 requests
+  all day) — all 5 seats idle.
+- **Actual saturation** (`Login.LicenseUnavailable`) only ever lands 11am–3pm,
+  peaking at 2pm; intermittent — 102 refusals across 22 days in the last
+  12 months.
+- A request's DB work averages ~460 ms (max ~46 s for a heavy batch
+  execution), so a login-bracketed write burst would hold a seat for seconds.
+
+So a seat-holding design would schedule bulk work off-hours (zero
+contention) and burst interactive writes through one short-lived seat — but
+per the decoupling finding above, that is not required for the API path.
 
 ## Open follow-ups
 
