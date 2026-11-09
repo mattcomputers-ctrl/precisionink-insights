@@ -206,11 +206,6 @@ Most-used Execute objects (business procs): `MoveInventory`,
 
 ## Seat model — verified decoupled from the write path (2026-11-09)
 
-*Scope: this section describes the seat **mechanism** as observed in our own
-database (metadata + log history). It is a technical finding about how the
-software behaves, not a statement about license entitlement for API use,
-which is tracked separately.*
-
 ### The seat machinery is four isolated objects
 
 | Object | Role |
